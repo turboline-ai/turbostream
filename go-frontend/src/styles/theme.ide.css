@@ -1,0 +1,129 @@
+/* IDE Theme Tokens: minimal and reversible */
+[data-theme="ide"] {
+  --bg-0: #0e1116; /* editor background */
+  --bg-1: #151922; /* panels */
+  --ink: #e8ecf3; /* primary text */
+  --muted: #98a2b3; /* secondary text */
+  --blue: #5aa3ff; /* accent for charts/links */
+  --green: #62c2a0; /* success/status */
+  --amber: #e7b95f; /* warnings */
+  --line: #232837; /* hairline borders */
+  --ring: #2d3344; /* focus ring */
+  --r: 0; /* border radius */
+}
+
+/* Base */
+[data-theme="ide"] body {
+  background: var(--bg-0);
+  color: var(--ink);
+}
+
+/* Generic building blocks */
+[data-theme="ide"] .panel {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+[data-theme="ide"] .muted {
+  color: var(--muted);
+}
+[data-theme="ide"] .mono {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+[data-theme="ide"] .btn {
+  background: #101624;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: 0;
+}
+[data-theme="ide"] .hairline {
+  border: 1px solid var(--line);
+}
+
+/* Example shells and cards */
+[data-theme="ide"] header.app,
+[data-theme="ide"] .sidebar,
+[data-theme="ide"] .card {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+
+/* Focus styles */
+[data-theme="ide"] :focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Modal styling */
+[data-theme="ide"] .ant-modal .ant-modal-content {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+}
+
+[data-theme="ide"] .ant-modal .ant-modal-header {
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+}
+
+[data-theme="ide"] .ant-modal .ant-modal-title {
+  color: var(--ink);
+}
+
+[data-theme="ide"] .ant-modal .ant-modal-body {
+  background: var(--bg-1);
+  color: var(--ink);
+}
+
+[data-theme="ide"] .ant-modal .ant-modal-footer {
+  background: var(--bg-1);
+  border-top: 1px solid var(--line);
+}
+
+[data-theme="ide"] .ant-modal .ant-btn-default {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+[data-theme="ide"] .ant-modal .ant-btn-default:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+[data-theme="ide"] .ant-modal .ant-btn-primary {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: white;
+}
+
+[data-theme="ide"] .ant-modal .ant-btn-primary:hover {
+  background: #4a94f0;
+  border-color: #4a94f0;
+}
+
+[data-theme="ide"] .ant-input,
+[data-theme="ide"] .ant-input:focus,
+[data-theme="ide"] .ant-input-focused {
+  background: var(--bg-0);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+[data-theme="ide"] .ant-input:hover {
+  border-color: var(--blue);
+}
+
+[data-theme="ide"] .ant-input:focus,
+[data-theme="ide"] .ant-input-focused {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px rgba(90, 163, 255, 0.1);
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  [data-theme="ide"] * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

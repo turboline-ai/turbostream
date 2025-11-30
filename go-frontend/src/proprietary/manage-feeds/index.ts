@@ -1,0 +1,1 @@
+export { useManageFeedsExtensions } from './useManageFeedsExtensions';

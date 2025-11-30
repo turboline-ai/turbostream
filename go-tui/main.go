@@ -1,0 +1,1304 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/manasmudbari/realtime-crypto-analyzer/go-tui/pkg/api"
+)
+
+// Color palette - Cyan theme with Magenta tabs
+var (
+	cyanColor       = lipgloss.Color("#00FFFF")
+	darkCyanColor   = lipgloss.Color("#008B8B")
+	brightCyanColor = lipgloss.Color("#00FFFF")
+	dimCyanColor    = lipgloss.Color("#5F9EA0")
+	whiteColor      = lipgloss.Color("#FFFFFF")
+	grayColor       = lipgloss.Color("#808080")
+	darkGrayColor   = lipgloss.Color("#2D2D2D")
+	greenColor      = lipgloss.Color("#00FF00")
+	redColor        = lipgloss.Color("#FF6B6B")
+
+	// Magenta colors for tabs
+	magentaColor     = lipgloss.Color("#FF00FF")
+	darkMagentaColor = lipgloss.Color("#8B008B")
+	dimMagentaColor  = lipgloss.Color("#BA55D3")
+
+	// Tab styles - Magenta theme
+	activeTabStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#000000")).
+			Background(magentaColor).
+			Padding(0, 2).
+			MarginRight(1)
+
+	inactiveTabStyle = lipgloss.NewStyle().
+				Foreground(dimMagentaColor).
+				Background(darkGrayColor).
+				Padding(0, 2).
+				MarginRight(1)
+
+	tabBarStyle = lipgloss.NewStyle().
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderBottom(true).
+			BorderForeground(darkMagentaColor).
+			MarginBottom(1)
+
+	// Content styles
+	titleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(cyanColor).
+			MarginBottom(1)
+
+	headerStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(brightCyanColor).
+			Background(darkGrayColor).
+			Padding(0, 2).
+			MarginBottom(1)
+
+	boxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(darkCyanColor).
+			Padding(1, 2)
+
+	selectedItemStyle = lipgloss.NewStyle().
+				Foreground(brightCyanColor).
+				Bold(true)
+
+	normalItemStyle = lipgloss.NewStyle().
+			Foreground(grayColor)
+
+	statusBarStyle = lipgloss.NewStyle().
+			Foreground(dimCyanColor).
+			Background(darkGrayColor).
+			Padding(0, 1)
+
+	errorStyle = lipgloss.NewStyle().
+			Foreground(redColor).
+			Bold(true)
+
+	successStyle = lipgloss.NewStyle().
+			Foreground(greenColor).
+			Bold(true)
+
+	labelStyle = lipgloss.NewStyle().
+			Foreground(cyanColor).
+			Bold(true)
+
+	helpStyle = lipgloss.NewStyle().
+			Foreground(dimCyanColor)
+
+	contentStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(darkCyanColor).
+			Padding(1, 2).
+			Width(100)
+)
+
+// Screens within the TUI.
+type screen int
+
+const (
+	screenLogin screen = iota
+	screenDashboard
+	screenMarketplace
+	screenFeedDetail
+	screenRegisterFeed
+	screenFeeds
+)
+
+// Tab indices for main navigation
+const (
+	tabDashboard = iota
+	tabRegisterFeed
+	tabMyFeeds
+	tabCount
+)
+
+// feedEntry is a simplified log line for feed updates.
+type feedEntry struct {
+	FeedID   string
+	FeedName string
+	Event    string
+	Data     string
+	Time     time.Time
+}
+
+// Messages used by Bubble Tea update loop.
+type (
+	authResultMsg struct {
+		Token string
+		User  *api.User
+		Err   error
+	}
+	meResultMsg struct {
+		User *api.User
+		Err  error
+	}
+	feedsMsg struct {
+		Feeds []api.Feed
+		Err   error
+	}
+	subsMsg struct {
+		Subs []api.Subscription
+		Err  error
+	}
+	feedDetailMsg struct {
+		Feed *api.Feed
+		Err  error
+	}
+	subscribeResultMsg struct {
+		FeedID string
+		Action string
+		Err    error
+	}
+	wsConnectedMsg struct {
+		Client *wsClient
+		Err    error
+	}
+	wsStatusMsg struct {
+		Status string
+		Err    error
+	}
+	feedDataMsg struct {
+		FeedID    string
+		FeedName  string
+		EventName string
+		Data      string
+		Time      time.Time
+	}
+	tokenUsageUpdateMsg struct {
+		Usage *api.TokenUsage
+	}
+	feedCreateMsg struct {
+		Feed *api.Feed
+		Err  error
+	}
+	feedDeleteMsg struct {
+		FeedID string
+		Err    error
+	}
+)
+
+// Model keeps the application state (Elm-style).
+type model struct {
+	backendURL string
+	wsURL      string
+	client     *api.Client
+
+	screen    screen
+	activeTab int // Current tab index (0=Dashboard, 1=Marketplace, 2=Register Feed, 3=Feeds)
+
+	// Auth
+	authMode string // login or register
+	email    textinput.Model
+	password textinput.Model
+	name     textinput.Model
+	totp     textinput.Model
+	token    string
+	user     *api.User
+
+	// Data
+	feeds         []api.Feed
+	subs          []api.Subscription
+	selectedIdx   int
+	selectedFeed  *api.Feed
+	activeFeedID  string
+	feedEntries   map[string][]feedEntry
+	statusMessage string
+	errorMessage  string
+
+	// Realtime
+	wsClient *wsClient
+	wsStatus string
+
+	// UI helpers
+	spinner spinner.Model
+	loading bool
+
+	// Feed registration form
+	feedName        textinput.Model
+	feedDescription textinput.Model
+	feedURL         textinput.Model
+	feedCategory    textinput.Model
+	feedEventName   textinput.Model
+	feedSubMsg      textinput.Model
+	feedFormFocus   int
+}
+
+func main() {
+	backendURL := getenvDefault("TURBOSTREAM_BACKEND_URL", "http://localhost:7210")
+	wsURL := getenvDefault("TURBOSTREAM_WEBSOCKET_URL", "ws://localhost:7210/ws")
+	token := os.Getenv("TURBOSTREAM_TOKEN")
+	email := os.Getenv("TURBOSTREAM_EMAIL")
+
+	client := api.NewClient(backendURL)
+	if token != "" {
+		client.SetToken(token)
+	}
+
+	m := newModel(client, backendURL, wsURL, token, email)
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	if err := p.Start(); err != nil {
+		fmt.Println("failed to start TUI:", err)
+		os.Exit(1)
+	}
+}
+
+func newModel(client *api.Client, backendURL, wsURL, token, presetEmail string) model {
+	email := textinput.New()
+	email.Placeholder = ""
+	email.SetValue(presetEmail)
+	email.Focus()
+
+	password := textinput.New()
+	password.Placeholder = ""
+	password.EchoMode = textinput.EchoPassword
+	password.CharLimit = 64
+
+	name := textinput.New()
+	name.Placeholder = ""
+
+	totp := textinput.New()
+	totp.Placeholder = ""
+	totp.CharLimit = 10
+
+	sp := spinner.New()
+	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+
+	// Feed registration form inputs
+	feedName := textinput.New()
+	feedName.Placeholder = ""
+	feedName.CharLimit = 100
+
+	feedDescription := textinput.New()
+	feedDescription.Placeholder = ""
+	feedDescription.CharLimit = 500
+
+	feedURL := textinput.New()
+	feedURL.Placeholder = ""
+	feedURL.CharLimit = 500
+
+	feedCategory := textinput.New()
+	feedCategory.Placeholder = ""
+	feedCategory.CharLimit = 50
+
+	feedEventName := textinput.New()
+	feedEventName.Placeholder = ""
+	feedEventName.CharLimit = 100
+
+	feedSubMsg := textinput.New()
+	feedSubMsg.Placeholder = ""
+	feedSubMsg.CharLimit = 1000
+
+	return model{
+		backendURL:      backendURL,
+		wsURL:           wsURL,
+		client:          client,
+		screen:          screenLogin,
+		authMode:        "login",
+		email:           email,
+		password:        password,
+		name:            name,
+		totp:            totp,
+		token:           token,
+		feedEntries:     map[string][]feedEntry{},
+		spinner:         sp,
+		loading:         token != "",
+		statusMessage:   "TurboStream TUI (Bubble Tea)",
+		feedName:        feedName,
+		feedDescription: feedDescription,
+		feedURL:         feedURL,
+		feedCategory:    feedCategory,
+		feedEventName:   feedEventName,
+		feedSubMsg:      feedSubMsg,
+		feedFormFocus:   0,
+	}
+}
+
+func (m model) Init() tea.Cmd {
+	cmds := []tea.Cmd{m.spinner.Tick}
+	if m.token != "" {
+		cmds = append(cmds, fetchMeCmd(m.client))
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		return m.handleKey(msg)
+
+	case tea.WindowSizeMsg:
+		// no-op for now; could adapt layout later
+	case authResultMsg:
+		m.loading = false
+		if msg.Err != nil {
+			m.errorMessage = msg.Err.Error()
+			return m, nil
+		}
+		m.token = msg.Token
+		m.user = msg.User
+		m.client.SetToken(msg.Token)
+		m.screen = screenDashboard
+		m.statusMessage = "Logged in"
+		return m, tea.Batch(loadInitialDataCmd(m.client), connectWS(m.wsURL, m.user.ID, m.userAgent()))
+
+	case meResultMsg:
+		m.loading = false
+		if msg.Err != nil {
+			m.errorMessage = msg.Err.Error()
+			m.screen = screenLogin
+			return m, nil
+		}
+		m.user = msg.User
+		m.screen = screenDashboard
+		m.statusMessage = "Session restored"
+		return m, tea.Batch(loadInitialDataCmd(m.client), connectWS(m.wsURL, m.user.ID, m.userAgent()))
+
+	case feedsMsg:
+		m.loading = false
+		if msg.Err != nil {
+			m.errorMessage = msg.Err.Error()
+			return m, nil
+		}
+		m.feeds = msg.Feeds
+		m.errorMessage = ""
+		return m, nil
+
+	case subsMsg:
+		m.loading = false
+		if msg.Err != nil {
+			m.errorMessage = msg.Err.Error()
+			return m, nil
+		}
+		m.subs = msg.Subs
+		return m, nil
+
+	case feedDetailMsg:
+		m.loading = false
+		if msg.Err != nil {
+			m.errorMessage = msg.Err.Error()
+			return m, nil
+		}
+		m.selectedFeed = msg.Feed
+		m.activeFeedID = msg.Feed.ID
+		m.screen = screenFeedDetail
+		m.errorMessage = ""
+		return m, nil
+
+	case subscribeResultMsg:
+		if msg.Err != nil {
+			m.errorMessage = msg.Err.Error()
+			return m, nil
+		}
+		m.errorMessage = ""
+		m.statusMessage = fmt.Sprintf("%s successful for feed %s", strings.ToUpper(msg.Action[:1])+msg.Action[1:], msg.FeedID)
+		var cmds []tea.Cmd
+		cmds = append(cmds, loadSubscriptionsCmd(m.client))
+		if m.wsClient != nil {
+			if msg.Action == "subscribe" {
+				_ = m.wsClient.Subscribe(msg.FeedID)
+			} else {
+				_ = m.wsClient.Unsubscribe(msg.FeedID)
+			}
+			cmds = append(cmds, m.wsClient.ListenCmd())
+		}
+		return m, tea.Batch(cmds...)
+
+	case wsConnectedMsg:
+		if msg.Err != nil {
+			m.wsStatus = "disconnected"
+			m.errorMessage = msg.Err.Error()
+			return m, nil
+		}
+		m.wsClient = msg.Client
+		m.wsStatus = "connected"
+		return m, m.wsClient.ListenCmd()
+
+	case wsStatusMsg:
+		m.wsStatus = msg.Status
+		if msg.Err != nil {
+			m.errorMessage = msg.Err.Error()
+		}
+		if msg.Status == "disconnected" {
+			m.wsClient = nil
+		}
+		return m, m.nextWSListen()
+
+	case feedDataMsg:
+		entries := m.feedEntries[msg.FeedID]
+		entries = append([]feedEntry{{FeedID: msg.FeedID, FeedName: msg.FeedName, Event: msg.EventName, Data: msg.Data, Time: msg.Time}}, entries...)
+		if len(entries) > 50 {
+			entries = entries[:50]
+		}
+		m.feedEntries[msg.FeedID] = entries
+		return m, m.nextWSListen()
+
+	case tokenUsageUpdateMsg:
+		if m.user != nil {
+			m.user.TokenUsage = msg.Usage
+		}
+		return m, m.nextWSListen()
+
+	case feedCreateMsg:
+		m.loading = false
+		if msg.Err != nil {
+			m.errorMessage = msg.Err.Error()
+			return m, nil
+		}
+		m.statusMessage = fmt.Sprintf("Feed '%s' created successfully!", msg.Feed.Name)
+		m.errorMessage = ""
+		m.screen = screenDashboard
+		// Clear form
+		m.feedName.SetValue("")
+		m.feedDescription.SetValue("")
+		m.feedURL.SetValue("")
+		m.feedCategory.SetValue("")
+		m.feedEventName.SetValue("")
+		m.feedSubMsg.SetValue("")
+		m.feedFormFocus = 0
+		return m, loadFeedsCmd(m.client)
+
+	case feedDeleteMsg:
+		m.loading = false
+		if msg.Err != nil {
+			m.errorMessage = msg.Err.Error()
+			return m, nil
+		}
+		m.statusMessage = "Feed deleted successfully!"
+		m.errorMessage = ""
+		// Remove from feedEntries
+		delete(m.feedEntries, msg.FeedID)
+		// Reset selection if needed
+		if m.selectedIdx >= len(m.feeds)-1 && m.selectedIdx > 0 {
+			m.selectedIdx--
+		}
+		return m, loadFeedsCmd(m.client)
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q":
+		if m.wsClient != nil {
+			m.wsClient.Close()
+		}
+		return m, tea.Quit
+	}
+
+	if m.screen == screenLogin {
+		return m.updateAuth(msg)
+	}
+
+	// Handle tab switching globally (except on login screen)
+	switch msg.String() {
+	case "tab":
+		// Cycle through tabs: Dashboard -> Register Feed -> My Feeds
+		m.activeTab = (m.activeTab + 1) % tabCount
+		switch m.activeTab {
+		case tabDashboard:
+			m.screen = screenDashboard
+		case tabRegisterFeed:
+			m.screen = screenRegisterFeed
+			m.feedName.Focus()
+			m.feedFormFocus = 0
+		case tabMyFeeds:
+			m.screen = screenFeeds
+		}
+		return m, nil
+	case "shift+tab":
+		// Cycle backwards through tabs
+		m.activeTab--
+		if m.activeTab < 0 {
+			m.activeTab = tabCount - 1
+		}
+		switch m.activeTab {
+		case tabDashboard:
+			m.screen = screenDashboard
+		case tabRegisterFeed:
+			m.screen = screenRegisterFeed
+			m.feedName.Focus()
+			m.feedFormFocus = 0
+		case tabMyFeeds:
+			m.screen = screenFeeds
+		}
+		return m, nil
+	}
+
+	// Handle screen-specific key handling
+	if m.screen == screenRegisterFeed {
+		return m.updateRegisterFeed(msg)
+	}
+
+	switch msg.String() {
+	case "up":
+		if m.selectedIdx > 0 {
+			m.selectedIdx--
+		}
+	case "down":
+		if m.selectedIdx < len(m.feeds)-1 {
+			m.selectedIdx++
+		}
+	case "enter":
+		if len(m.feeds) > 0 {
+			feed := m.feeds[m.selectedIdx]
+			return m, fetchFeedCmd(m.client, feed.ID)
+		}
+	case "s":
+		// Subscribe/unsubscribe using selected feed from list OR selectedFeed if in detail view
+		var feedID string
+		var userID string
+		if m.user != nil {
+			userID = m.user.ID
+		}
+		if m.screen == screenFeeds && len(m.feeds) > 0 && m.selectedIdx < len(m.feeds) {
+			feedID = m.feeds[m.selectedIdx].ID
+		} else if m.selectedFeed != nil {
+			feedID = m.selectedFeed.ID
+		}
+		if feedID != "" && userID != "" {
+			if m.isSubscribed(feedID) {
+				return m, unsubscribeCmd(m.client, feedID)
+			}
+			return m, subscribeCmd(m.client, feedID, userID)
+		}
+	case "D":
+		// Delete feed (Shift+D, only on My Feeds screen)
+		if m.screen == screenFeeds && len(m.feeds) > 0 && m.selectedIdx < len(m.feeds) {
+			feed := m.feeds[m.selectedIdx]
+			// Only allow deleting own feeds
+			if m.user != nil && feed.OwnerID == m.user.ID {
+				m.loading = true
+				return m, deleteFeedCmd(m.client, feed.ID)
+			} else {
+				m.errorMessage = "You can only delete your own feeds"
+			}
+		}
+	case "c":
+		if m.wsClient == nil && m.user != nil {
+			return m, connectWS(m.wsURL, m.user.ID, m.userAgent())
+		}
+	case "l":
+		if m.wsClient != nil {
+			m.wsClient.Close()
+		}
+		m.token = ""
+		m.user = nil
+		m.client.SetToken("")
+		m.feeds = nil
+		m.subs = nil
+		m.selectedFeed = nil
+		m.feedEntries = map[string][]feedEntry{}
+		m.wsClient = nil
+		m.wsStatus = ""
+		m.screen = screenLogin
+		m.statusMessage = "Logged out"
+		m.errorMessage = ""
+		m.email.SetValue("")
+		m.password.SetValue("")
+		m.name.SetValue("")
+		m.totp.SetValue("")
+		m.email.Focus()
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m model) updateAuth(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+	switch msg.Type {
+	case tea.KeyEnter:
+		m.loading = true
+		m.errorMessage = ""
+		if m.authMode == "login" {
+			return m, loginCmd(m.client, m.email.Value(), m.password.Value(), m.totp.Value())
+		}
+		return m, registerCmd(m.client, m.email.Value(), m.password.Value(), m.name.Value())
+	case tea.KeyTab, tea.KeyShiftTab, tea.KeyDown:
+		cmds = append(cmds, switchFocusNext(&m))
+		return m, tea.Batch(cmds...)
+	case tea.KeyUp:
+		cmds = append(cmds, switchFocusPrev(&m))
+		return m, tea.Batch(cmds...)
+	case tea.KeyCtrlS:
+		if m.authMode == "login" {
+			m.authMode = "register"
+		} else {
+			m.authMode = "login"
+		}
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.email, cmd = m.email.Update(msg)
+	cmds = append(cmds, cmd)
+	m.password, cmd = m.password.Update(msg)
+	cmds = append(cmds, cmd)
+	m.totp, cmd = m.totp.Update(msg)
+	cmds = append(cmds, cmd)
+	m.name, cmd = m.name.Update(msg)
+	cmds = append(cmds, cmd)
+	return m, tea.Batch(cmds...)
+}
+
+func switchFocusNext(m *model) tea.Cmd {
+	if m.email.Focused() {
+		m.email.Blur()
+		return m.password.Focus()
+	}
+	if m.password.Focused() {
+		m.password.Blur()
+		return m.totp.Focus()
+	}
+	if m.totp.Focused() {
+		m.totp.Blur()
+		if m.authMode == "register" {
+			return m.name.Focus()
+		}
+		return m.email.Focus()
+	}
+	if m.name.Focused() {
+		m.name.Blur()
+		return m.email.Focus()
+	}
+	return m.email.Focus()
+}
+
+func switchFocusPrev(m *model) tea.Cmd {
+	if m.email.Focused() {
+		m.email.Blur()
+		if m.authMode == "register" {
+			return m.name.Focus()
+		}
+		return m.totp.Focus()
+	}
+	if m.password.Focused() {
+		m.password.Blur()
+		return m.email.Focus()
+	}
+	if m.totp.Focused() {
+		m.totp.Blur()
+		return m.password.Focus()
+	}
+	if m.name.Focused() {
+		m.name.Blur()
+		return m.totp.Focus()
+	}
+	return m.email.Focus()
+}
+
+func (m model) updateRegisterFeed(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.screen = screenDashboard
+		m.feedName.Blur()
+		m.feedDescription.Blur()
+		m.feedURL.Blur()
+		m.feedCategory.Blur()
+		m.feedEventName.Blur()
+		m.feedSubMsg.Blur()
+		return m, nil
+	case tea.KeyEnter:
+		if msg.String() == "enter" {
+			// Submit form
+			m.loading = true
+			m.errorMessage = ""
+			return m, createFeedCmd(m.client, m.feedName.Value(), m.feedDescription.Value(),
+				m.feedURL.Value(), m.feedCategory.Value(),
+				m.feedEventName.Value(), m.feedSubMsg.Value())
+		}
+	case tea.KeyDown:
+		return m, m.nextFeedFormFocus()
+	case tea.KeyUp:
+		return m, m.prevFeedFormFocus()
+	}
+
+	// Update the focused input
+	var cmd tea.Cmd
+	switch m.feedFormFocus {
+	case 0:
+		m.feedName, cmd = m.feedName.Update(msg)
+	case 1:
+		m.feedDescription, cmd = m.feedDescription.Update(msg)
+	case 2:
+		m.feedURL, cmd = m.feedURL.Update(msg)
+	case 3:
+		m.feedCategory, cmd = m.feedCategory.Update(msg)
+	case 4:
+		m.feedEventName, cmd = m.feedEventName.Update(msg)
+	case 5:
+		m.feedSubMsg, cmd = m.feedSubMsg.Update(msg)
+	}
+	cmds = append(cmds, cmd)
+
+	return m, tea.Batch(cmds...)
+}
+
+func (m *model) nextFeedFormFocus() tea.Cmd {
+	inputs := []struct {
+		input *textinput.Model
+		index int
+	}{
+		{&m.feedName, 0},
+		{&m.feedDescription, 1},
+		{&m.feedURL, 2},
+		{&m.feedCategory, 3},
+		{&m.feedEventName, 4},
+		{&m.feedSubMsg, 5},
+	}
+
+	inputs[m.feedFormFocus].input.Blur()
+	m.feedFormFocus = (m.feedFormFocus + 1) % len(inputs)
+	return inputs[m.feedFormFocus].input.Focus()
+}
+
+func (m *model) prevFeedFormFocus() tea.Cmd {
+	inputs := []struct {
+		input *textinput.Model
+		index int
+	}{
+		{&m.feedName, 0},
+		{&m.feedDescription, 1},
+		{&m.feedURL, 2},
+		{&m.feedCategory, 3},
+		{&m.feedEventName, 4},
+		{&m.feedSubMsg, 5},
+	}
+
+	inputs[m.feedFormFocus].input.Blur()
+	m.feedFormFocus--
+	if m.feedFormFocus < 0 {
+		m.feedFormFocus = len(inputs) - 1
+	}
+	return inputs[m.feedFormFocus].input.Focus()
+}
+
+func (m model) View() string {
+	if m.screen == screenLogin {
+		return m.viewAuth()
+	}
+	return m.viewApp()
+}
+
+func (m model) viewAuth() string {
+	builder := strings.Builder{}
+
+	// Header with logo
+	builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("⚡ TurboStream TUI"))
+	builder.WriteString("\n\n")
+
+	if m.authMode == "login" {
+		builder.WriteString(lipgloss.NewStyle().Foreground(brightCyanColor).Render("Login"))
+		builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render(" (Ctrl+S for register)"))
+	} else {
+		builder.WriteString(lipgloss.NewStyle().Foreground(brightCyanColor).Render("Register"))
+		builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render(" (Ctrl+S for login)"))
+	}
+	builder.WriteString("\n\n")
+
+	if m.authMode == "register" {
+		builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Name: "))
+		builder.WriteString(m.name.View())
+		builder.WriteString("\n")
+	}
+	builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Email: "))
+	builder.WriteString(m.email.View())
+	builder.WriteString("\n")
+	builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Password: "))
+	builder.WriteString(m.password.View())
+	builder.WriteString("\n")
+	if m.authMode == "login" {
+		builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("TOTP (optional): "))
+		builder.WriteString(m.totp.View())
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("\n")
+	builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Enter to submit | ↑↓ navigate | q to quit"))
+
+	if m.loading {
+		builder.WriteString("\n")
+		builder.WriteString(fmt.Sprintf("%s Authenticating...", m.spinner.View()))
+	}
+	if m.errorMessage != "" {
+		builder.WriteString("\n")
+		builder.WriteString(lipgloss.NewStyle().Foreground(redColor).Render(m.errorMessage))
+	}
+
+	return boxStyle.Render(builder.String())
+}
+
+func (m model) viewApp() string {
+	top := m.viewTopBar()
+	tabBar := m.viewTabBar()
+	content := m.viewContent()
+	footer := m.viewFooter()
+	return lipgloss.JoinVertical(lipgloss.Left, top, tabBar, content, footer)
+}
+
+func (m model) viewTabBar() string {
+	tabs := []string{"Dashboard", "Register Feed", "My Feeds"}
+	var renderedTabs []string
+
+	for i, tab := range tabs {
+		var style lipgloss.Style
+		if i == m.activeTab {
+			style = activeTabStyle
+		} else {
+			style = inactiveTabStyle
+		}
+		renderedTabs = append(renderedTabs, style.Render(tab))
+	}
+
+	tabRow := lipgloss.JoinHorizontal(lipgloss.Top, renderedTabs...)
+	return tabBarStyle.Render(tabRow)
+}
+
+func (m model) viewTopBar() string {
+	left := lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("⚡ TurboStream")
+	status := fmt.Sprintf("Backend: %s | WS: %s", m.backendURL, m.wsStatus)
+	if m.user != nil && m.user.TokenUsage != nil {
+		status += fmt.Sprintf(" | Tokens %d/%d", m.user.TokenUsage.TokensUsed, m.user.TokenUsage.Limit)
+	}
+	userInfo := ""
+	if m.user != nil {
+		userInfo = lipgloss.NewStyle().Foreground(dimCyanColor).Render(fmt.Sprintf(" | %s [l to logout]", m.user.Email))
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", status, userInfo)
+}
+
+func (m model) viewContent() string {
+	switch m.screen {
+	case screenDashboard:
+		return m.viewDashboard()
+	case screenFeedDetail:
+		return m.viewFeedDetail()
+	case screenRegisterFeed:
+		return m.viewRegisterFeed()
+	case screenFeeds:
+		return m.viewMyFeeds()
+	default:
+		return ""
+	}
+}
+
+func (m model) viewMyFeeds() string {
+	if len(m.feeds) == 0 {
+		builder := strings.Builder{}
+		builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("📡 My Feeds"))
+		builder.WriteString("\n\n")
+		builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("No feeds registered yet. Use 'Register Feed' tab to add a WebSocket feed!"))
+		return contentStyle.Render(builder.String())
+	}
+
+	// Feed list section (top-left)
+	feedListBuilder := strings.Builder{}
+	feedListBuilder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("📡 My Feeds"))
+	feedListBuilder.WriteString("\n\n")
+
+	for i, f := range m.feeds {
+		cursor := "  "
+		style := lipgloss.NewStyle()
+		if i == m.selectedIdx {
+			cursor = lipgloss.NewStyle().Foreground(cyanColor).Render("▶ ")
+			style = style.Foreground(brightCyanColor)
+		}
+		subscribed := ""
+		if m.isSubscribed(f.ID) {
+			subscribed = lipgloss.NewStyle().Foreground(greenColor).Render(" ✓")
+		}
+		line := fmt.Sprintf("%s%s [%s]%s", cursor, truncate(f.Name, 22), f.Category, subscribed)
+		feedListBuilder.WriteString(style.Render(line))
+		feedListBuilder.WriteString("\n")
+	}
+
+	feedListBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(darkCyanColor).
+		Padding(1, 2).
+		Width(35).
+		Height(12).
+		Render(feedListBuilder.String())
+
+	// Instructions section (bottom-left)
+	instructBuilder := strings.Builder{}
+	instructBuilder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(magentaColor).Render("📖 Instructions"))
+	instructBuilder.WriteString("\n\n")
+	instructBuilder.WriteString(lipgloss.NewStyle().Foreground(brightCyanColor).Render("Navigation"))
+	instructBuilder.WriteString("\n")
+	instructBuilder.WriteString("  ↑/↓      Select feed\n")
+	instructBuilder.WriteString("  Tab      Next tab\n")
+	instructBuilder.WriteString("  Shift+Tab Previous tab\n")
+	instructBuilder.WriteString("\n")
+	instructBuilder.WriteString(lipgloss.NewStyle().Foreground(brightCyanColor).Render("Actions"))
+	instructBuilder.WriteString("\n")
+	instructBuilder.WriteString("  s        Subscribe/Unsubscribe\n")
+	instructBuilder.WriteString("  Shift+D  Delete feed (own only)\n")
+	instructBuilder.WriteString("  c        Connect WebSocket\n")
+	instructBuilder.WriteString("  l        Logout\n")
+	instructBuilder.WriteString("  q        Quit\n")
+
+	instructBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(darkMagentaColor).
+		Padding(1, 2).
+		Width(35).
+		Render(instructBuilder.String())
+
+	// Left column: Feed list + Instructions
+	leftColumn := lipgloss.JoinVertical(lipgloss.Left, feedListBox, instructBox)
+
+	// Right column: Feed Info + Live Stream
+	rightBuilder := strings.Builder{}
+
+	if m.selectedIdx < len(m.feeds) {
+		feed := m.feeds[m.selectedIdx]
+
+		// Feed Info Box (top-right)
+		infoBuilder := strings.Builder{}
+		infoBuilder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render(fmt.Sprintf("📋 %s", feed.Name)))
+		infoBuilder.WriteString("\n\n")
+		infoBuilder.WriteString(fmt.Sprintf("Category: %s\n", feed.Category))
+		infoBuilder.WriteString(fmt.Sprintf("URL: %s\n", truncate(feed.URL, 50)))
+		if feed.EventName != "" {
+			infoBuilder.WriteString(fmt.Sprintf("Event: %s\n", feed.EventName))
+		}
+
+		subStatus := lipgloss.NewStyle().Foreground(redColor).Render("● Not Subscribed")
+		if m.isSubscribed(feed.ID) {
+			subStatus = lipgloss.NewStyle().Foreground(greenColor).Render("● Subscribed")
+		}
+		infoBuilder.WriteString(fmt.Sprintf("Status: %s\n", subStatus))
+		infoBuilder.WriteString(fmt.Sprintf("WS: %s", m.wsStatus))
+
+		infoBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(darkCyanColor).
+			Padding(1, 2).
+			Width(60).
+			Render(infoBuilder.String())
+
+		// Live Stream Box (bottom-right)
+		streamBuilder := strings.Builder{}
+		streamBuilder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("📺 Live Stream"))
+		streamBuilder.WriteString("\n\n")
+
+		entries := m.feedEntries[feed.ID]
+		if len(entries) == 0 {
+			if m.wsStatus != "connected" {
+				streamBuilder.WriteString(lipgloss.NewStyle().Foreground(redColor).Render("⚠ WebSocket not connected\n"))
+				streamBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Press 'c' to connect..."))
+			} else if !m.isSubscribed(feed.ID) {
+				streamBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Press 's' to subscribe and start streaming..."))
+			} else {
+				streamBuilder.WriteString(lipgloss.NewStyle().Foreground(greenColor).Render("● Connected & Subscribed\n"))
+				streamBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Waiting for data from WebSocket..."))
+			}
+		} else {
+			// Show latest entries (up to 10)
+			showCount := 10
+			if len(entries) < showCount {
+				showCount = len(entries)
+			}
+			for i := 0; i < showCount; i++ {
+				e := entries[i]
+				timestamp := lipgloss.NewStyle().Foreground(dimCyanColor).Render(e.Time.Format("15:04:05"))
+				streamBuilder.WriteString(fmt.Sprintf("%s %s\n", timestamp, truncate(e.Data, 70)))
+			}
+		}
+
+		streamBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(darkCyanColor).
+			Padding(1, 2).
+			Width(60).
+			Height(15).
+			Render(streamBuilder.String())
+
+		rightBuilder.WriteString(lipgloss.JoinVertical(lipgloss.Left, infoBox, streamBox))
+	}
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, "  ", rightBuilder.String())
+}
+
+func (m model) viewDashboard() string {
+	builder := strings.Builder{}
+	builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("📊 Dashboard"))
+	builder.WriteString("\n\n")
+
+	stats := []string{
+		fmt.Sprintf("Total Feeds: %d", len(m.feeds)),
+		fmt.Sprintf("Active Subscriptions: %d", len(m.subs)),
+	}
+	if m.user != nil && m.user.TokenUsage != nil {
+		stats = append(stats, fmt.Sprintf("Token Usage: %d/%d", m.user.TokenUsage.TokensUsed, m.user.TokenUsage.Limit))
+	}
+
+	for _, stat := range stats {
+		builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("• "))
+		builder.WriteString(stat)
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("\n")
+	builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Tab/Shift+Tab to switch tabs | q to quit"))
+
+	return contentStyle.Render(builder.String())
+}
+
+func (m model) viewFeedDetail() string {
+	if m.selectedFeed == nil {
+		return contentStyle.Render("Select a feed to view details.")
+	}
+	feed := m.selectedFeed
+	builder := strings.Builder{}
+
+	builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render(fmt.Sprintf("📡 %s", feed.Name)))
+	builder.WriteString("\n\n")
+
+	builder.WriteString(fmt.Sprintf("Category: %s | Owner: %s\n", feed.Category, feed.OwnerName))
+	builder.WriteString(fmt.Sprintf("URL: %s\n", feed.URL))
+	builder.WriteString(fmt.Sprintf("Event: %s\n", feed.EventName))
+	builder.WriteString(fmt.Sprintf("Public: %v | Active: %v\n", feed.IsPublic, feed.IsActive))
+
+	subStatus := lipgloss.NewStyle().Foreground(redColor).Render("not subscribed")
+	if m.isSubscribed(feed.ID) {
+		subStatus = lipgloss.NewStyle().Foreground(greenColor).Render("subscribed ✓")
+	}
+	builder.WriteString(fmt.Sprintf("Status: %s | WS: %s\n", subStatus, m.wsStatus))
+
+	builder.WriteString("\n")
+	builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(dimCyanColor).Render("Live data (latest first):"))
+	builder.WriteString("\n")
+
+	entries := m.feedEntries[feed.ID]
+	if len(entries) == 0 {
+		builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("No data yet. Subscribe (s) or wait for updates."))
+	} else {
+		for _, e := range entries {
+			builder.WriteString(fmt.Sprintf("[%s] %s\n", e.Time.Format("15:04:05"), truncate(e.Data, 120)))
+		}
+	}
+
+	builder.WriteString("\n")
+	builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("s to subscribe/unsubscribe | Esc to go back"))
+
+	return contentStyle.Render(builder.String())
+}
+
+func (m model) viewRegisterFeed() string {
+	builder := strings.Builder{}
+	builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("📝 Register New WebSocket Feed"))
+	builder.WriteString("\n\n")
+
+	labels := []string{
+		"Feed Name *",
+		"Description",
+		"WebSocket URL *",
+		"Category",
+		"Event Name",
+		"Subscription Message (JSON)",
+	}
+	inputs := []*textinput.Model{
+		&m.feedName,
+		&m.feedDescription,
+		&m.feedURL,
+		&m.feedCategory,
+		&m.feedEventName,
+		&m.feedSubMsg,
+	}
+
+	for i, label := range labels {
+		labelStyle := lipgloss.NewStyle().Foreground(dimCyanColor)
+		if i == m.feedFormFocus {
+			labelStyle = lipgloss.NewStyle().Foreground(cyanColor).Bold(true)
+		}
+		builder.WriteString(labelStyle.Render(label + ": "))
+		builder.WriteString(inputs[i].View())
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("\n")
+	builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("↑↓ navigate | Enter submit | Esc cancel | * required"))
+
+	if m.loading {
+		builder.WriteString("\n")
+		builder.WriteString(fmt.Sprintf("%s Creating feed...", m.spinner.View()))
+	}
+	if m.errorMessage != "" {
+		builder.WriteString("\n")
+		builder.WriteString(lipgloss.NewStyle().Foreground(redColor).Render(m.errorMessage))
+	}
+
+	return contentStyle.Render(builder.String())
+}
+
+func (m model) viewFooter() string {
+	if m.errorMessage != "" {
+		return lipgloss.NewStyle().Foreground(redColor).Render(m.errorMessage)
+	}
+	if m.statusMessage != "" {
+		return lipgloss.NewStyle().Foreground(dimCyanColor).Render(m.statusMessage)
+	}
+	return ""
+}
+
+func (m model) isSubscribed(feedID string) bool {
+	for _, s := range m.subs {
+		if s.FeedID == feedID {
+			return true
+		}
+	}
+	return false
+}
+
+func (m model) userAgent() string {
+	return "TurboStream TUI"
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-1] + "…"
+}
+
+func (m model) nextWSListen() tea.Cmd {
+	if m.wsClient == nil {
+		return nil
+	}
+	return m.wsClient.ListenCmd()
+}
+
+// ---- Commands ----
+
+func loginCmd(client *api.Client, email, password, totp string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		token, user, err := client.Login(ctx, email, password, totp)
+		return authResultMsg{Token: token, User: user, Err: err}
+	}
+}
+
+func registerCmd(client *api.Client, email, password, name string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		token, user, err := client.Register(ctx, email, password, name)
+		return authResultMsg{Token: token, User: user, Err: err}
+	}
+}
+
+func fetchMeCmd(client *api.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		user, err := client.Me(ctx)
+		return meResultMsg{User: user, Err: err}
+	}
+}
+
+func loadInitialDataCmd(client *api.Client) tea.Cmd {
+	return tea.Batch(loadFeedsCmd(client), loadSubscriptionsCmd(client))
+}
+
+func loadFeedsCmd(client *api.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		feeds, err := client.ListFeeds(ctx)
+		return feedsMsg{Feeds: feeds, Err: err}
+	}
+}
+
+func loadSubscriptionsCmd(client *api.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		subs, err := client.Subscriptions(ctx)
+		return subsMsg{Subs: subs, Err: err}
+	}
+}
+
+func fetchFeedCmd(client *api.Client, id string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		feed, err := client.Feed(ctx, id)
+		return feedDetailMsg{Feed: feed, Err: err}
+	}
+}
+
+func subscribeCmd(client *api.Client, feedID, userID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		err := client.Subscribe(ctx, feedID)
+		if err == nil && client.Token() != "" {
+			// Best-effort websocket subscribe.
+		}
+		return subscribeResultMsg{FeedID: feedID, Action: "subscribe", Err: err}
+	}
+}
+
+func unsubscribeCmd(client *api.Client, feedID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		err := client.Unsubscribe(ctx, feedID)
+		return subscribeResultMsg{FeedID: feedID, Action: "unsubscribe", Err: err}
+	}
+}
+
+func connectWS(url, userID, userAgent string) tea.Cmd {
+	return func() tea.Msg {
+		client, err := dialWS(url, userID, userAgent)
+		return wsConnectedMsg{Client: client, Err: err}
+	}
+}
+
+func createFeedCmd(client *api.Client, name, description, url, category, eventName, subMsg string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		feed, err := client.CreateFeed(ctx, name, description, url, category, eventName, subMsg)
+		return feedCreateMsg{Feed: feed, Err: err}
+	}
+}
+
+func deleteFeedCmd(client *api.Client, feedID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := client.DeleteFeed(ctx, feedID)
+		return feedDeleteMsg{FeedID: feedID, Err: err}
+	}
+}
+
+// ---- Helpers ----
+
+func getenvDefault(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
+}

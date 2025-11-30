@@ -1,0 +1,1 @@
+export { useDashboardExtensions } from './useDashboardExtensions';
