@@ -37,11 +37,22 @@ func main() {
 	settingsService := services.NewSettingsService(mongoClient.Db)
 	azureService := services.NewAzureOpenAI(cfg)
 
+	// Initialize LLM service with LangChain Go
+	llmService, err := services.NewLLMService(cfg)
+	if err != nil {
+		log.Printf("⚠️  failed to initialize LLM service: %v", err)
+	} else if llmService.Enabled() {
+		log.Printf("✓ LLM service initialized with providers: %v", llmService.GetAvailableProviders())
+	} else {
+		log.Printf("⚠️  No LLM providers configured - AI features disabled")
+	}
+
 	if err := settingsService.EnsureDefaultCategories(ctx); err != nil {
 		log.Printf("⚠️  failed to seed settings categories: %v", err)
 	}
 
 	socketManager := socket.NewManager(azureService, marketplaceService)
+	socketManager.SetLLMService(llmService)
 
 	gin.SetMode(gin.ReleaseMode)
 
@@ -50,6 +61,7 @@ func main() {
 		AuthService: authService,
 		Marketplace: marketplaceService,
 		Settings:    settingsService,
+		LLM:         llmService,
 		Sockets:     socketManager,
 	})
 

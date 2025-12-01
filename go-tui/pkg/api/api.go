@@ -55,6 +55,7 @@ type (
 		ID                string    `json:"_id"`
 		Name              string    `json:"name"`
 		Description       string    `json:"description"`
+		SystemPrompt      string    `json:"systemPrompt"`
 		URL               string    `json:"url"`
 		Category          string    `json:"category"`
 		Icon              string    `json:"icon"`
@@ -210,7 +211,7 @@ func (c *Client) Unsubscribe(ctx context.Context, feedID string) error {
 	return nil
 }
 
-func (c *Client) CreateFeed(ctx context.Context, name, description, url, category, eventName, subMsg string) (*Feed, error) {
+func (c *Client) CreateFeed(ctx context.Context, name, description, url, category, eventName, subMsg, systemPrompt string) (*Feed, error) {
 	payload := map[string]interface{}{
 		"name":                name,
 		"description":         description,
@@ -226,6 +227,9 @@ func (c *Client) CreateFeed(ctx context.Context, name, description, url, categor
 
 	if subMsg != "" {
 		payload["connectionMessages"] = []string{subMsg}
+	}
+	if systemPrompt != "" {
+		payload["systemPrompt"] = systemPrompt
 	}
 
 	var resp struct {

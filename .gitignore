@@ -1,8 +1,9 @@
 # OS
 .DS_Store
 *.DS_Store
+Thumbs.db
 
-# Go
+# Go binaries and build artifacts
 *.exe
 *.exe~
 *.dll
@@ -11,30 +12,54 @@
 *.test
 *.out
 go-tui/tui
+go-tui/turbostream
 go-tui/.cache/
 go-backend/server
+go-backend/.cache/
 
-# Node
-node_modules/
-.next/
-out/
+# Environment files (NEVER commit these - contain secrets)
 .env
 .env.local
 .env.*.local
+.env.production
+.env.development
+go-backend/.env.local
+
+# Node (in case frontend comes back)
+node_modules/
+.next/
+out/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.pnpm-debug.log*
 
-# IDE
+# IDE and editors
 .idea/
 .vscode/
 *.swp
 *.swo
+*.vim
+*~
+.project
+.classpath
+.settings/
 
-# Misc
+# Logs
 *.log
+logs/
 tmp/
 
-# Go backend cache
-go-backend/.cache/
-go-backend/.env.local
+# Test coverage
+coverage/
+*.cover
+*.coverage
+
+# Debug
+debug/
+*.prof
+
+# Misc
+*.bak
+*.tmp
+*.temp

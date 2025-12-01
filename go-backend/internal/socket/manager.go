@@ -131,6 +131,7 @@ type feedConnection struct {
 type Manager struct {
 	rooms        *RoomManager
 	azure        *services.AzureOpenAI
+	llm          *services.LLMService
 	marketplace  *services.MarketplaceService
 	feedConns    map[string]*feedConnection
 	feedMu       sync.RWMutex
@@ -146,6 +147,11 @@ func NewManager(azure *services.AzureOpenAI, marketplace *services.MarketplaceSe
 		feedConns:   make(map[string]*feedConnection),
 		subscribers: make(map[string]map[*Client]struct{}),
 	}
+}
+
+// SetLLMService sets the LLM service for AI queries
+func (m *Manager) SetLLMService(llm *services.LLMService) {
+	m.llm = llm
 }
 
 // Handle upgrades the HTTP connection to a raw websocket connection.
@@ -275,6 +281,36 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 			"analysisId": payload.AnalysisID,
 		}))
 
+	case "llm-query":
+		// LangChain-based LLM query using feed context
+		var payload struct {
+			FeedID       string `json:"feedId"`
+			Question     string `json:"question"`
+			Provider     string `json:"provider"`
+			SystemPrompt string `json:"systemPrompt"`
+			RequestID    string `json:"requestId"`
+		}
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			client.send(makeMessage("llm-error", map[string]string{"error": "invalid payload"}))
+			return
+		}
+		go m.handleLLMQuery(client, payload.FeedID, payload.Question, payload.Provider, payload.SystemPrompt, payload.RequestID)
+
+	case "llm-query-stream":
+		// Streaming LLM query
+		var payload struct {
+			FeedID       string `json:"feedId"`
+			Question     string `json:"question"`
+			Provider     string `json:"provider"`
+			SystemPrompt string `json:"systemPrompt"`
+			RequestID    string `json:"requestId"`
+		}
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			client.send(makeMessage("llm-error", map[string]string{"error": "invalid payload"}))
+			return
+		}
+		go m.handleLLMStreamQuery(client, payload.FeedID, payload.Question, payload.Provider, payload.SystemPrompt, payload.RequestID)
+
 	default:
 		client.send(makeMessage("error", map[string]string{"message": "unknown event"}))
 	}
@@ -324,6 +360,11 @@ func (m *Manager) BroadcastFeedData(feed models.WebSocketFeed, data interface{},
 		"eventName": eventName,
 		"data":      data,
 		"timestamp": time.Now().UTC(),
+	}
+
+	// Add to LLM context for AI queries
+	if m.llm != nil {
+		m.llm.AddFeedData(feed.ID.Hex(), feed.Name, data)
 	}
 
 	room := feedRoom(feed.ID.Hex())
@@ -536,4 +577,92 @@ func (m *Manager) simpleAnalyze(payload map[string]interface{}) string {
 		return def
 	}
 	return resp
+}
+
+// handleLLMQuery handles non-streaming LLM queries via WebSocket
+func (m *Manager) handleLLMQuery(client *Client, feedID, question, provider, systemPrompt, requestID string) {
+	if m.llm == nil || !m.llm.Enabled() {
+		client.send(makeMessage("llm-error", map[string]interface{}{
+			"error":     "LLM service not configured",
+			"requestId": requestID,
+		}))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	resp, err := m.llm.Query(ctx, services.QueryRequest{
+		FeedID:       feedID,
+		Question:     question,
+		Provider:     provider,
+		SystemPrompt: systemPrompt,
+	})
+
+	if err != nil {
+		client.send(makeMessage("llm-error", map[string]interface{}{
+			"error":     err.Error(),
+			"requestId": requestID,
+		}))
+		return
+	}
+
+	client.send(makeMessage("llm-response", map[string]interface{}{
+		"answer":     resp.Answer,
+		"provider":   resp.Provider,
+		"feedId":     resp.FeedID,
+		"durationMs": resp.Duration,
+		"requestId":  requestID,
+	}))
+}
+
+// handleLLMStreamQuery handles streaming LLM queries via WebSocket
+func (m *Manager) handleLLMStreamQuery(client *Client, feedID, question, provider, systemPrompt, requestID string) {
+	if m.llm == nil || !m.llm.Enabled() {
+		client.send(makeMessage("llm-error", map[string]interface{}{
+			"error":     "LLM service not configured",
+			"requestId": requestID,
+		}))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	tokenChan := make(chan string, 100)
+
+	// Start streaming
+	go func() {
+		resp, err := m.llm.StreamQuery(ctx, services.QueryRequest{
+			FeedID:       feedID,
+			Question:     question,
+			Provider:     provider,
+			SystemPrompt: systemPrompt,
+		}, tokenChan)
+
+		if err != nil {
+			client.send(makeMessage("llm-error", map[string]interface{}{
+				"error":     err.Error(),
+				"requestId": requestID,
+			}))
+			return
+		}
+
+		// Send completion message
+		client.send(makeMessage("llm-complete", map[string]interface{}{
+			"answer":     resp.Answer,
+			"provider":   resp.Provider,
+			"feedId":     resp.FeedID,
+			"durationMs": resp.Duration,
+			"requestId":  requestID,
+		}))
+	}()
+
+	// Stream tokens to client
+	for token := range tokenChan {
+		client.send(makeMessage("llm-token", map[string]interface{}{
+			"token":     token,
+			"requestId": requestID,
+		}))
+	}
 }

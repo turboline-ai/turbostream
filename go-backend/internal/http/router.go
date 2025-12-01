@@ -18,6 +18,7 @@ type RouterDeps struct {
 	AuthService *services.AuthService
 	Marketplace *services.MarketplaceService
 	Settings    *services.SettingsService
+	LLM         *services.LLMService
 	Sockets     *socket.Manager
 }
 
@@ -53,6 +54,23 @@ func BuildEngine(deps RouterDeps) *gin.Engine {
 	settingsHandler := handlers.NewSettingsHandler(deps.Settings)
 	settingsGroup := router.Group("/api/settings")
 	settingsHandler.RegisterRoutes(settingsGroup)
+
+	// LLM routes
+	if deps.LLM != nil {
+		llmHandler := handlers.NewLLMHandler(deps.LLM)
+		llmPublic := router.Group("/api/llm")
+		{
+			llmPublic.GET("/providers", llmHandler.GetProviders)
+		}
+		llmProtected := router.Group("/api/llm", AuthMiddleware(deps.AuthService))
+		{
+			llmProtected.GET("/context/:feedId", llmHandler.GetFeedContext)
+			llmProtected.DELETE("/context/:feedId", llmHandler.ClearFeedContext)
+			llmProtected.POST("/query", llmHandler.Query)
+			llmProtected.POST("/query/stream", llmHandler.StreamQuery)
+			llmProtected.POST("/analyze", llmHandler.Analyze)
+		}
+	}
 
 	// Filters – stub endpoints for frontend compatibility
 	router.GET("/api/filters", func(c *gin.Context) {

@@ -104,6 +104,37 @@ var (
 			Width(100)
 )
 
+// ASCII Logo with gradient colors (Cyan to Magenta)
+var logoLines = []string{
+	"████████╗██╗   ██╗██████╗ ██████╗  ██████╗ ███████╗████████╗██████╗ ███████╗ █████╗ ███╗   ███╗",
+	"╚══██╔══╝██║   ██║██╔══██╗██╔══██╗██╔═══██╗██╔════╝╚══██╔══╝██╔══██╗██╔════╝██╔══██╗████╗ ████║",
+	"   ██║   ██║   ██║██████╔╝██████╔╝██║   ██║███████╗   ██║   ██████╔╝█████╗  ███████║██╔████╔██║",
+	"   ██║   ██║   ██║██╔══██╗██╔══██╗██║   ██║╚════██║   ██║   ██╔══██╗██╔══╝  ██╔══██║██║╚██╔╝██║",
+	"   ██║   ╚██████╔╝██║  ██║██████╔╝╚██████╔╝███████║   ██║   ██║  ██║███████╗██║  ██║██║ ╚═╝ ██║",
+	"   ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚═════╝  ╚═════╝ ╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝",
+}
+
+// Gradient colors from Cyan to Magenta
+var gradientColors = []lipgloss.Color{
+	lipgloss.Color("#00FFFF"), // Cyan
+	lipgloss.Color("#33CCFF"),
+	lipgloss.Color("#6699FF"),
+	lipgloss.Color("#9966FF"),
+	lipgloss.Color("#CC33FF"),
+	lipgloss.Color("#FF00FF"), // Magenta
+}
+
+func renderGradientLogo() string {
+	var builder strings.Builder
+	for i, line := range logoLines {
+		color := gradientColors[i%len(gradientColors)]
+		style := lipgloss.NewStyle().Foreground(color).Bold(true)
+		builder.WriteString(style.Render(line))
+		builder.WriteString("\n")
+	}
+	return builder.String()
+}
+
 // Screens within the TUI.
 type screen int
 
@@ -187,6 +218,19 @@ type (
 		FeedID string
 		Err    error
 	}
+	// AI-related messages
+	aiResponseMsg struct {
+		RequestID string
+		Answer    string
+		Provider  string
+		Duration  int64
+		Err       error
+	}
+	aiTokenMsg struct {
+		RequestID string
+		Token     string
+	}
+	aiTickMsg struct{} // For auto-query interval
 )
 
 // Model keeps the application state (Elm-style).
@@ -226,13 +270,25 @@ type model struct {
 	loading bool
 
 	// Feed registration form
-	feedName        textinput.Model
-	feedDescription textinput.Model
-	feedURL         textinput.Model
-	feedCategory    textinput.Model
-	feedEventName   textinput.Model
-	feedSubMsg      textinput.Model
-	feedFormFocus   int
+	feedName         textinput.Model
+	feedDescription  textinput.Model
+	feedURL          textinput.Model
+	feedCategory     textinput.Model
+	feedEventName    textinput.Model
+	feedSubMsg       textinput.Model
+	feedSystemPrompt textinput.Model
+	feedFormFocus    int
+
+	// AI Analysis panel
+	aiPrompt      textinput.Model
+	aiAutoMode    bool      // true = auto query at interval, false = manual
+	aiInterval    int       // seconds between auto queries (5, 10, 30, 60)
+	aiIntervalIdx int       // index into interval options
+	aiResponse    string    // latest AI response
+	aiLoading     bool      // whether AI query is in progress
+	aiLastQuery   time.Time // last query time
+	aiFocused     bool      // whether AI panel is focused for editing
+	aiRequestID   string    // track current request
 }
 
 func main() {
@@ -300,28 +356,45 @@ func newModel(client *api.Client, backendURL, wsURL, token, presetEmail string) 
 	feedSubMsg.Placeholder = ""
 	feedSubMsg.CharLimit = 1000
 
+	feedSystemPrompt := textinput.New()
+	feedSystemPrompt.Placeholder = ""
+	feedSystemPrompt.CharLimit = 2000
+
+	// AI prompt input
+	aiPrompt := textinput.New()
+	aiPrompt.Placeholder = "Ask about the streaming data..."
+	aiPrompt.CharLimit = 500
+	aiPrompt.Width = 50
+
 	return model{
-		backendURL:      backendURL,
-		wsURL:           wsURL,
-		client:          client,
-		screen:          screenLogin,
-		authMode:        "login",
-		email:           email,
-		password:        password,
-		name:            name,
-		totp:            totp,
-		token:           token,
-		feedEntries:     map[string][]feedEntry{},
-		spinner:         sp,
-		loading:         token != "",
-		statusMessage:   "TurboStream TUI (Bubble Tea)",
-		feedName:        feedName,
-		feedDescription: feedDescription,
-		feedURL:         feedURL,
-		feedCategory:    feedCategory,
-		feedEventName:   feedEventName,
-		feedSubMsg:      feedSubMsg,
-		feedFormFocus:   0,
+		backendURL:       backendURL,
+		wsURL:            wsURL,
+		client:           client,
+		screen:           screenLogin,
+		authMode:         "login",
+		email:            email,
+		password:         password,
+		name:             name,
+		totp:             totp,
+		token:            token,
+		feedEntries:      map[string][]feedEntry{},
+		spinner:          sp,
+		loading:          token != "",
+		statusMessage:    "TurboStream TUI (Bubble Tea)",
+		feedName:         feedName,
+		feedDescription:  feedDescription,
+		feedURL:          feedURL,
+		feedCategory:     feedCategory,
+		feedEventName:    feedEventName,
+		feedSubMsg:       feedSubMsg,
+		feedSystemPrompt: feedSystemPrompt,
+		feedFormFocus:    0,
+		// AI defaults
+		aiPrompt:      aiPrompt,
+		aiAutoMode:    false,
+		aiInterval:    10,
+		aiIntervalIdx: 1, // 10 seconds default
+		aiResponse:    "",
 	}
 }
 
@@ -410,6 +483,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				_ = m.wsClient.Subscribe(msg.FeedID)
 			} else {
 				_ = m.wsClient.Unsubscribe(msg.FeedID)
+				// Clear feed entries when unsubscribing
+				delete(m.feedEntries, msg.FeedID)
 			}
 			cmds = append(cmds, m.wsClient.ListenCmd())
 		}
@@ -456,9 +531,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errorMessage = msg.Err.Error()
 			return m, nil
 		}
-		m.statusMessage = fmt.Sprintf("Feed '%s' created successfully!", msg.Feed.Name)
+		m.statusMessage = fmt.Sprintf("Feed '%s' created! Auto-subscribing...", msg.Feed.Name)
 		m.errorMessage = ""
-		m.screen = screenDashboard
 		// Clear form
 		m.feedName.SetValue("")
 		m.feedDescription.SetValue("")
@@ -466,8 +540,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.feedCategory.SetValue("")
 		m.feedEventName.SetValue("")
 		m.feedSubMsg.SetValue("")
+		m.feedSystemPrompt.SetValue("")
 		m.feedFormFocus = 0
-		return m, loadFeedsCmd(m.client)
+		// Set selected feed and go to My Feeds tab to show it
+		m.selectedFeed = msg.Feed
+		m.activeFeedID = msg.Feed.ID
+		m.screen = screenDashboard
+		m.activeTab = tabMyFeeds
+		m.selectedIdx = 0
+		// Load feeds, then auto-subscribe to the newly created feed
+		var cmds []tea.Cmd
+		cmds = append(cmds, loadFeedsCmd(m.client))
+		if m.user != nil {
+			cmds = append(cmds, subscribeCmd(m.client, msg.Feed.ID, m.user.ID))
+		}
+		return m, tea.Batch(cmds...)
 
 	case feedDeleteMsg:
 		m.loading = false
@@ -484,6 +571,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selectedIdx--
 		}
 		return m, loadFeedsCmd(m.client)
+
+	case aiResponseMsg:
+		m.aiLoading = false
+		if msg.Err != nil {
+			m.aiResponse = "Error: " + msg.Err.Error()
+			return m, m.nextWSListen()
+		}
+		if msg.RequestID == m.aiRequestID {
+			m.aiResponse = msg.Answer
+			m.statusMessage = fmt.Sprintf("AI response received (%s, %dms)", msg.Provider, msg.Duration)
+		}
+		return m, m.nextWSListen()
+
+	case aiTokenMsg:
+		// Streaming token - append to response
+		if msg.RequestID == m.aiRequestID {
+			m.aiResponse += msg.Token
+			m.aiLoading = true // Keep showing loading while streaming
+		}
+		return m, m.nextWSListen()
+
+	case aiTickMsg:
+		// Auto-query tick
+		if m.aiAutoMode && m.selectedFeed != nil && m.isSubscribed(m.selectedFeed.ID) {
+			// Check if enough time has passed
+			if time.Since(m.aiLastQuery) >= time.Duration(m.aiInterval)*time.Second {
+				m.aiLastQuery = time.Now()
+				m.aiLoading = true
+				m.aiRequestID = fmt.Sprintf("req-%d", time.Now().UnixNano())
+				m.aiResponse = ""
+				return m, tea.Batch(m.sendAIQuery(), m.nextWSListen(), tea.Tick(time.Second, func(t time.Time) tea.Msg { return aiTickMsg{} }))
+			}
+		}
+		// Schedule next tick
+		return m, tea.Tick(time.Second, func(t time.Time) tea.Msg { return aiTickMsg{} })
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -547,6 +669,35 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateRegisterFeed(msg)
 	}
 
+	// Handle AI prompt input when focused
+	if m.aiFocused {
+		switch msg.String() {
+		case "esc":
+			m.aiFocused = false
+			m.aiPrompt.Blur()
+			return m, nil
+		case "enter":
+			// Submit query and exit edit mode
+			m.aiFocused = false
+			m.aiPrompt.Blur()
+			if len(m.feeds) > 0 && m.selectedIdx < len(m.feeds) {
+				feed := m.feeds[m.selectedIdx]
+				if m.isSubscribed(feed.ID) {
+					m.selectedFeed = &feed
+					m.aiLoading = true
+					m.aiRequestID = fmt.Sprintf("req-%d", time.Now().UnixNano())
+					m.aiResponse = ""
+					return m, tea.Batch(m.sendAIQuery(), m.nextWSListen())
+				}
+			}
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.aiPrompt, cmd = m.aiPrompt.Update(msg)
+			return m, cmd
+		}
+	}
+
 	switch msg.String() {
 	case "up":
 		if m.selectedIdx > 0 {
@@ -590,6 +741,58 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.errorMessage = "You can only delete your own feeds"
 			}
+		}
+	case "a":
+		// Send AI query (only on My Feeds screen with a subscribed feed)
+		if m.screen == screenFeeds && !m.aiFocused {
+			if len(m.feeds) > 0 && m.selectedIdx < len(m.feeds) {
+				feed := m.feeds[m.selectedIdx]
+				if m.isSubscribed(feed.ID) {
+					m.selectedFeed = &feed
+					m.aiLoading = true
+					m.aiRequestID = fmt.Sprintf("req-%d", time.Now().UnixNano())
+					m.aiResponse = ""
+					return m, tea.Batch(m.sendAIQuery(), m.nextWSListen())
+				} else {
+					m.statusMessage = "Subscribe to feed first to use AI analysis"
+				}
+			}
+		}
+	case "m":
+		// Toggle AI mode (auto/manual)
+		if m.screen == screenFeeds && !m.aiFocused {
+			m.aiAutoMode = !m.aiAutoMode
+			if m.aiAutoMode {
+				m.statusMessage = fmt.Sprintf("AI Auto mode enabled (every %ds)", m.aiInterval)
+				m.aiLastQuery = time.Now()
+				return m, m.startAIAutoQuery()
+			} else {
+				m.statusMessage = "AI Manual mode enabled"
+			}
+		}
+	case "i":
+		// Cycle AI interval (only on My Feeds screen)
+		if m.screen == screenFeeds && !m.aiFocused {
+			m.aiIntervalIdx = (m.aiIntervalIdx + 1) % len(aiIntervalOptions)
+			m.aiInterval = aiIntervalOptions[m.aiIntervalIdx]
+			m.statusMessage = fmt.Sprintf("AI query interval set to %ds", m.aiInterval)
+		}
+	case "p":
+		// Toggle AI prompt editing
+		if m.screen == screenFeeds {
+			m.aiFocused = !m.aiFocused
+			if m.aiFocused {
+				m.aiPrompt.Focus()
+			} else {
+				m.aiPrompt.Blur()
+			}
+		}
+	case "esc":
+		// Exit AI prompt editing
+		if m.aiFocused {
+			m.aiFocused = false
+			m.aiPrompt.Blur()
+			return m, nil
 		}
 	case "c":
 		if m.wsClient == nil && m.user != nil {
@@ -723,7 +926,7 @@ func (m model) updateRegisterFeed(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.errorMessage = ""
 			return m, createFeedCmd(m.client, m.feedName.Value(), m.feedDescription.Value(),
 				m.feedURL.Value(), m.feedCategory.Value(),
-				m.feedEventName.Value(), m.feedSubMsg.Value())
+				m.feedEventName.Value(), m.feedSubMsg.Value(), m.feedSystemPrompt.Value())
 		}
 	case tea.KeyDown:
 		return m, m.nextFeedFormFocus()
@@ -746,6 +949,8 @@ func (m model) updateRegisterFeed(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.feedEventName, cmd = m.feedEventName.Update(msg)
 	case 5:
 		m.feedSubMsg, cmd = m.feedSubMsg.Update(msg)
+	case 6:
+		m.feedSystemPrompt, cmd = m.feedSystemPrompt.Update(msg)
 	}
 	cmds = append(cmds, cmd)
 
@@ -763,6 +968,7 @@ func (m *model) nextFeedFormFocus() tea.Cmd {
 		{&m.feedCategory, 3},
 		{&m.feedEventName, 4},
 		{&m.feedSubMsg, 5},
+		{&m.feedSystemPrompt, 6},
 	}
 
 	inputs[m.feedFormFocus].input.Blur()
@@ -781,6 +987,7 @@ func (m *model) prevFeedFormFocus() tea.Cmd {
 		{&m.feedCategory, 3},
 		{&m.feedEventName, 4},
 		{&m.feedSubMsg, 5},
+		{&m.feedSystemPrompt, 6},
 	}
 
 	inputs[m.feedFormFocus].input.Blur()
@@ -952,7 +1159,6 @@ func (m model) viewMyFeeds() string {
 	instructBuilder.WriteString("\n")
 	instructBuilder.WriteString("  s        Subscribe/Unsubscribe\n")
 	instructBuilder.WriteString("  Shift+D  Delete feed (own only)\n")
-	instructBuilder.WriteString("  c        Connect WebSocket\n")
 	instructBuilder.WriteString("  l        Logout\n")
 	instructBuilder.WriteString("  q        Quit\n")
 
@@ -1005,7 +1211,7 @@ func (m model) viewMyFeeds() string {
 		if len(entries) == 0 {
 			if m.wsStatus != "connected" {
 				streamBuilder.WriteString(lipgloss.NewStyle().Foreground(redColor).Render("⚠ WebSocket not connected\n"))
-				streamBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Press 'c' to connect..."))
+				streamBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Reconnecting..."))
 			} else if !m.isSubscribed(feed.ID) {
 				streamBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Press 's' to subscribe and start streaming..."))
 			} else {
@@ -1029,11 +1235,77 @@ func (m model) viewMyFeeds() string {
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(darkCyanColor).
 			Padding(1, 2).
-			Width(60).
-			Height(15).
+			Width(55).
+			Height(12).
 			Render(streamBuilder.String())
 
-		rightBuilder.WriteString(lipgloss.JoinVertical(lipgloss.Left, infoBox, streamBox))
+		// AI Analysis Box (right column)
+		aiBuilder := strings.Builder{}
+		aiTitle := "🤖 AI Analysis"
+		if m.aiFocused {
+			aiTitle = "🤖 AI Analysis (editing)"
+		}
+		aiBuilder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(magentaColor).Render(aiTitle))
+		aiBuilder.WriteString("\n\n")
+
+		// Mode toggle
+		modeLabel := "Manual"
+		if m.aiAutoMode {
+			modeLabel = fmt.Sprintf("Auto (%ds)", m.aiInterval)
+		}
+		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Mode: "))
+		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(brightCyanColor).Render(modeLabel))
+		aiBuilder.WriteString("\n\n")
+
+		// Prompt input
+		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Prompt:"))
+		aiBuilder.WriteString("\n")
+		if m.aiFocused {
+			aiBuilder.WriteString(m.aiPrompt.View())
+		} else {
+			promptVal := m.aiPrompt.Value()
+			if promptVal == "" {
+				promptVal = "(default: Analyze the data)"
+			}
+			aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render(truncate(promptVal, 40)))
+		}
+		aiBuilder.WriteString("\n\n")
+
+		// Response
+		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Response:"))
+		aiBuilder.WriteString("\n")
+		if m.aiLoading {
+			aiBuilder.WriteString(lipgloss.NewStyle().Foreground(magentaColor).Render("⏳ Querying LLM..."))
+		} else if m.aiResponse != "" {
+			// Word wrap the response
+			wrapped := wrapText(m.aiResponse, 38)
+			lines := strings.Split(wrapped, "\n")
+			maxLines := 8
+			if len(lines) > maxLines {
+				lines = lines[:maxLines]
+				lines = append(lines, "...")
+			}
+			aiBuilder.WriteString(lipgloss.NewStyle().Foreground(whiteColor).Render(strings.Join(lines, "\n")))
+		} else {
+			aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("No response yet.\nPress 'a' to query AI."))
+		}
+
+		// AI Controls hint
+		aiBuilder.WriteString("\n\n")
+		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(darkMagentaColor).Render("─────────────────────"))
+		aiBuilder.WriteString("\n")
+		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("a: query | m: mode | i: interval | p: edit prompt"))
+
+		aiBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(darkMagentaColor).
+			Padding(1, 2).
+			Width(45).
+			Height(22).
+			Render(aiBuilder.String())
+
+		middleColumn := lipgloss.JoinVertical(lipgloss.Left, infoBox, streamBox)
+		rightBuilder.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, middleColumn, "  ", aiBox))
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, "  ", rightBuilder.String())
@@ -1041,6 +1313,11 @@ func (m model) viewMyFeeds() string {
 
 func (m model) viewDashboard() string {
 	builder := strings.Builder{}
+
+	// Render gradient logo
+	builder.WriteString(renderGradientLogo())
+	builder.WriteString("\n")
+
 	builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("📊 Dashboard"))
 	builder.WriteString("\n\n")
 
@@ -1116,6 +1393,7 @@ func (m model) viewRegisterFeed() string {
 		"Category",
 		"Event Name",
 		"Subscription Message (JSON)",
+		"AI System Prompt",
 	}
 	inputs := []*textinput.Model{
 		&m.feedName,
@@ -1124,6 +1402,7 @@ func (m model) viewRegisterFeed() string {
 		&m.feedCategory,
 		&m.feedEventName,
 		&m.feedSubMsg,
+		&m.feedSystemPrompt,
 	}
 
 	for i, label := range labels {
@@ -1179,6 +1458,30 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max-1] + "…"
+}
+
+func wrapText(s string, width int) string {
+	if width <= 0 {
+		return s
+	}
+	var result strings.Builder
+	words := strings.Fields(s)
+	lineLen := 0
+	for i, word := range words {
+		wordLen := len(word)
+		if lineLen+wordLen+1 > width && lineLen > 0 {
+			result.WriteString("\n")
+			lineLen = 0
+		}
+		if lineLen > 0 {
+			result.WriteString(" ")
+			lineLen++
+		}
+		result.WriteString(word)
+		lineLen += wordLen
+		_ = i
+	}
+	return result.String()
 }
 
 func (m model) nextWSListen() tea.Cmd {
@@ -1276,11 +1579,11 @@ func connectWS(url, userID, userAgent string) tea.Cmd {
 	}
 }
 
-func createFeedCmd(client *api.Client, name, description, url, category, eventName, subMsg string) tea.Cmd {
+func createFeedCmd(client *api.Client, name, description, url, category, eventName, subMsg, systemPrompt string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		feed, err := client.CreateFeed(ctx, name, description, url, category, eventName, subMsg)
+		feed, err := client.CreateFeed(ctx, name, description, url, category, eventName, subMsg, systemPrompt)
 		return feedCreateMsg{Feed: feed, Err: err}
 	}
 }
@@ -1292,6 +1595,42 @@ func deleteFeedCmd(client *api.Client, feedID string) tea.Cmd {
 		err := client.DeleteFeed(ctx, feedID)
 		return feedDeleteMsg{FeedID: feedID, Err: err}
 	}
+}
+
+// AI interval options in seconds
+var aiIntervalOptions = []int{5, 10, 30, 60}
+
+// sendAIQuery sends a query to the LLM via WebSocket
+// NOTE: Caller must set m.aiLoading, m.aiRequestID, and clear m.aiResponse before calling
+func (m model) sendAIQuery() tea.Cmd {
+	if m.wsClient == nil || m.selectedFeed == nil {
+		return func() tea.Msg {
+			return aiResponseMsg{RequestID: m.aiRequestID, Err: fmt.Errorf("not connected or no feed selected")}
+		}
+	}
+
+	prompt := m.aiPrompt.Value()
+	if prompt == "" {
+		prompt = "Analyze the recent data and provide insights"
+	}
+
+	feedID := m.selectedFeed.ID
+	systemPrompt := m.selectedFeed.SystemPrompt
+	requestID := m.aiRequestID
+	wsClient := m.wsClient
+
+	return func() tea.Msg {
+		err := wsClient.SendLLMQuery(feedID, prompt, systemPrompt, requestID)
+		if err != nil {
+			return aiResponseMsg{RequestID: requestID, Err: err}
+		}
+		return nil
+	}
+}
+
+// startAIAutoQuery starts the auto-query ticker
+func (m model) startAIAutoQuery() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return aiTickMsg{} })
 }
 
 // ---- Helpers ----

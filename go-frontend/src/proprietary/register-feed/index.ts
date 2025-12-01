@@ -1,1 +1,0 @@
-export { useRegisterFeedExtensions } from './useRegisterFeedExtensions';

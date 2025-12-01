@@ -104,6 +104,58 @@ func (c *wsClient) readLoop() {
 			}
 		case "subscription-success", "unsubscription-success":
 			// No-op; REST already returns status.
+		case "llm-response":
+			var payload struct {
+				RequestID  string `json:"requestId"`
+				Answer     string `json:"answer"`
+				Provider   string `json:"provider"`
+				DurationMs int64  `json:"durationMs"`
+			}
+			if err := json.Unmarshal(env.Payload, &payload); err == nil {
+				c.incoming <- aiResponseMsg{
+					RequestID: payload.RequestID,
+					Answer:    payload.Answer,
+					Provider:  payload.Provider,
+					Duration:  payload.DurationMs,
+				}
+			}
+		case "llm-token":
+			var payload struct {
+				RequestID string `json:"requestId"`
+				Token     string `json:"token"`
+			}
+			if err := json.Unmarshal(env.Payload, &payload); err == nil {
+				c.incoming <- aiTokenMsg{
+					RequestID: payload.RequestID,
+					Token:     payload.Token,
+				}
+			}
+		case "llm-complete":
+			var payload struct {
+				RequestID  string `json:"requestId"`
+				Answer     string `json:"answer"`
+				Provider   string `json:"provider"`
+				DurationMs int64  `json:"durationMs"`
+			}
+			if err := json.Unmarshal(env.Payload, &payload); err == nil {
+				c.incoming <- aiResponseMsg{
+					RequestID: payload.RequestID,
+					Answer:    payload.Answer,
+					Provider:  payload.Provider,
+					Duration:  payload.DurationMs,
+				}
+			}
+		case "llm-error":
+			var payload struct {
+				RequestID string `json:"requestId"`
+				Error     string `json:"error"`
+			}
+			if err := json.Unmarshal(env.Payload, &payload); err == nil {
+				c.incoming <- aiResponseMsg{
+					RequestID: payload.RequestID,
+					Err:       errors.New(payload.Error),
+				}
+			}
 		default:
 			// unknown types are ignored but logged in status.
 		}
@@ -136,6 +188,31 @@ func (c *wsClient) Unsubscribe(feedID string) error {
 		"payload": map[string]string{
 			"feedId": feedID,
 			"userId": c.userID,
+		},
+	})
+}
+
+// SendLLMQuery sends a query to the LLM service via WebSocket
+func (c *wsClient) SendLLMQuery(feedID, question, systemPrompt, requestID string) error {
+	return c.send(map[string]interface{}{
+		"type": "llm-query",
+		"payload": map[string]string{
+			"feedId":       feedID,
+			"question":     question,
+			"systemPrompt": systemPrompt,
+			"requestId":    requestID,
+		},
+	})
+}
+
+// SendLLMStreamQuery sends a streaming query to the LLM service
+func (c *wsClient) SendLLMStreamQuery(feedID, question, requestID string) error {
+	return c.send(map[string]interface{}{
+		"type": "llm-query-stream",
+		"payload": map[string]string{
+			"feedId":    feedID,
+			"question":  question,
+			"requestId": requestID,
 		},
 	})
 }

@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/config"
@@ -62,7 +65,12 @@ func (s *AzureOpenAI) Chat(ctx context.Context, messages []ChatMessage) (string,
 		return "", errors.New("azure openai not configured")
 	}
 
-	url := fmt.Sprintf("%s/openai/deployments/%s/chat/completions?api-version=%s", s.endpoint, s.deployment, s.apiVersion)
+	// Remove trailing slash from endpoint if present
+	endpoint := strings.TrimSuffix(s.endpoint, "/")
+	url := fmt.Sprintf("%s/openai/deployments/%s/chat/completions?api-version=%s", endpoint, s.deployment, s.apiVersion)
+
+	log.Printf("Azure OpenAI request URL: %s", url)
+
 	reqBody := chatRequest{
 		Messages:    messages,
 		MaxTokens:   512,
@@ -84,7 +92,10 @@ func (s *AzureOpenAI) Chat(ctx context.Context, messages []ChatMessage) (string,
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("azure openai request failed: %s", resp.Status)
+		// Read response body for more details
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("Azure OpenAI error response: %s", string(body))
+		return "", fmt.Errorf("azure openai request failed: %s - %s", resp.Status, string(body))
 	}
 
 	var parsed chatResponse
