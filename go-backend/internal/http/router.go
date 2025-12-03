@@ -43,6 +43,7 @@ func BuildEngine(deps RouterDeps) *gin.Engine {
 	authHandler.RegisterPublic(publicAuth)
 	protectedAuth := router.Group("/api/auth", AuthMiddleware(deps.AuthService))
 	authHandler.RegisterProtected(protectedAuth)
+	protectedAuth.GET("/token-usage", authHandler.GetTokenUsage)
 
 	// Marketplace routes
 	marketplaceHandler := handlers.NewMarketplaceHandler(deps.Marketplace, deps.Sockets)

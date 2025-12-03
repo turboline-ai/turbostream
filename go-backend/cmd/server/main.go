@@ -51,7 +51,7 @@ func main() {
 		log.Printf("⚠️  failed to seed settings categories: %v", err)
 	}
 
-	socketManager := socket.NewManager(azureService, marketplaceService)
+	socketManager := socket.NewManager(authService, azureService, marketplaceService)
 	socketManager.SetLLMService(llmService)
 
 	gin.SetMode(gin.ReleaseMode)

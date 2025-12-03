@@ -43,6 +43,11 @@ type chatResponse struct {
 			Content string `json:"content"`
 		} `json:"message"`
 	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage"`
 }
 
 func NewAzureOpenAI(cfg config.Config) *AzureOpenAI {
@@ -60,9 +65,9 @@ func (s *AzureOpenAI) Enabled() bool {
 }
 
 // Chat sends a non-streaming chat completion request and returns the first response message.
-func (s *AzureOpenAI) Chat(ctx context.Context, messages []ChatMessage) (string, error) {
+func (s *AzureOpenAI) Chat(ctx context.Context, messages []ChatMessage) (string, int, error) {
 	if !s.Enabled() {
-		return "", errors.New("azure openai not configured")
+		return "", 0, errors.New("azure openai not configured")
 	}
 
 	// Remove trailing slash from endpoint if present
@@ -80,14 +85,14 @@ func (s *AzureOpenAI) Chat(ctx context.Context, messages []ChatMessage) (string,
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	req.Header.Set("api-key", s.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	defer resp.Body.Close()
 
@@ -95,15 +100,15 @@ func (s *AzureOpenAI) Chat(ctx context.Context, messages []ChatMessage) (string,
 		// Read response body for more details
 		body, _ := io.ReadAll(resp.Body)
 		log.Printf("Azure OpenAI error response: %s", string(body))
-		return "", fmt.Errorf("azure openai request failed: %s - %s", resp.Status, string(body))
+		return "", 0, fmt.Errorf("azure openai request failed: %s - %s", resp.Status, string(body))
 	}
 
 	var parsed chatResponse
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if len(parsed.Choices) == 0 || parsed.Choices[0].Message.Content == "" {
-		return "", errors.New("azure openai returned no content")
+		return "", 0, errors.New("azure openai returned no content")
 	}
-	return parsed.Choices[0].Message.Content, nil
+	return parsed.Choices[0].Message.Content, parsed.Usage.TotalTokens, nil
 }

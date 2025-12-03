@@ -95,6 +95,18 @@ func (h *AuthHandler) me(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "user": user})
 }
 
+func (h *AuthHandler) GetTokenUsage(c *gin.Context) {
+	userID := c.MustGet("userId").(primitive.ObjectID)
+	ctx, cancel := contextWithTimeout(c)
+	defer cancel()
+	user, err := h.Service.GetUser(ctx, userID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "User not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "tokenUsage": user.TokenUsage})
+}
+
 func (h *AuthHandler) logout(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Logout successful"})
 }

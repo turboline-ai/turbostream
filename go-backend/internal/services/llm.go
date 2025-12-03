@@ -187,16 +187,17 @@ Question: %s`, string(contextJSON), req.Question)
 		{Role: "user", Content: userPrompt},
 	}
 
-	answer, err := s.azureOpenAI.Chat(ctx, messages)
+	answer, tokensUsed, err := s.azureOpenAI.Chat(ctx, messages)
 	if err != nil {
 		return nil, fmt.Errorf("azure openai error: %w", err)
 	}
 
 	return &QueryResponse{
-		Answer:   answer,
-		Provider: "azure-openai",
-		FeedID:   req.FeedID,
-		Duration: time.Since(start).Milliseconds(),
+		Answer:     answer,
+		Provider:   "azure-openai",
+		FeedID:     req.FeedID,
+		TokensUsed: tokensUsed,
+		Duration:   time.Since(start).Milliseconds(),
 	}, nil
 }
 
@@ -243,7 +244,7 @@ Question: %s`, string(contextJSON), req.Question)
 		{Role: "user", Content: userPrompt},
 	}
 
-	answer, err := s.azureOpenAI.Chat(ctx, messages)
+	answer, tokensUsed, err := s.azureOpenAI.Chat(ctx, messages)
 	if err != nil {
 		return nil, fmt.Errorf("azure openai error: %w", err)
 	}
@@ -252,10 +253,11 @@ Question: %s`, string(contextJSON), req.Question)
 	tokenChan <- answer
 
 	return &QueryResponse{
-		Answer:   answer,
-		Provider: "azure-openai",
-		FeedID:   req.FeedID,
-		Duration: time.Since(start).Milliseconds(),
+		Answer:     answer,
+		Provider:   "azure-openai",
+		FeedID:     req.FeedID,
+		TokensUsed: tokensUsed,
+		Duration:   time.Since(start).Milliseconds(),
 	}, nil
 }
 

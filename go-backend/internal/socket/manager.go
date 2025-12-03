@@ -12,6 +12,7 @@ import (
 	"time"
 
 	gws "github.com/gorilla/websocket"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	coderws "nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
 
@@ -130,6 +131,7 @@ type feedConnection struct {
 // Manager manages websocket connections and feed broadcasts.
 type Manager struct {
 	rooms        *RoomManager
+	auth         *services.AuthService
 	azure        *services.AzureOpenAI
 	llm          *services.LLMService
 	marketplace  *services.MarketplaceService
@@ -139,9 +141,10 @@ type Manager struct {
 	subscriberMu sync.RWMutex
 }
 
-func NewManager(azure *services.AzureOpenAI, marketplace *services.MarketplaceService) *Manager {
+func NewManager(auth *services.AuthService, azure *services.AzureOpenAI, marketplace *services.MarketplaceService) *Manager {
 	return &Manager{
 		rooms:       NewRoomManager(),
+		auth:        auth,
 		azure:       azure,
 		marketplace: marketplace,
 		feedConns:   make(map[string]*feedConnection),
@@ -257,7 +260,7 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 			client.send(makeMessage("ai-error", map[string]string{"error": "invalid payload"}))
 			return
 		}
-		resp := m.simpleAnalyze(payload)
+		resp, _ := m.simpleAnalyze(payload)
 		client.send(makeMessage("ai-stream", map[string]string{"token": resp}))
 		client.send(makeMessage("ai-complete", map[string]interface{}{"response": resp, "duration": 50}))
 
@@ -271,7 +274,7 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 			client.send(makeMessage("universal-ai-error", map[string]string{"error": "invalid payload"}))
 			return
 		}
-		resp := m.simpleAnalyze(map[string]interface{}{
+		resp, _ := m.simpleAnalyze(map[string]interface{}{
 			"feedId":       payload.FeedID,
 			"customPrompt": payload.CustomPrompt,
 		})
@@ -559,10 +562,10 @@ func (m *Manager) readLoop(feed models.WebSocketFeed, conn *gws.Conn, stop chan 
 }
 
 // simpleAnalyze either calls Azure OpenAI if configured or falls back to a canned response.
-func (m *Manager) simpleAnalyze(payload map[string]interface{}) string {
+func (m *Manager) simpleAnalyze(payload map[string]interface{}) (string, int) {
 	def := "Analysis is not yet connected to an AI provider in the Go backend. This is a placeholder response."
 	if m.azure == nil || !m.azure.Enabled() {
-		return def
+		return def, 0
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -571,12 +574,32 @@ func (m *Manager) simpleAnalyze(payload map[string]interface{}) string {
 		{Role: "system", Content: "You are an AI assistant providing concise analysis for realtime data feeds."},
 		{Role: "user", Content: fmt.Sprintf("Analyze this payload: %v", payload)},
 	}
-	resp, err := m.azure.Chat(ctx, messages)
+	resp, tokens, err := m.azure.Chat(ctx, messages)
 	if err != nil {
 		log.Printf("azure openai chat failed: %v", err)
-		return def
+		return def, 0
 	}
-	return resp
+	return resp, tokens
+}
+
+func (m *Manager) sendTokenUsageUpdate(client *Client) {
+	if m.auth == nil || client.userID == "" {
+		return
+	}
+
+	userID, err := primitive.ObjectIDFromHex(client.userID)
+	if err != nil {
+		return
+	}
+
+	user, err := m.auth.GetUser(context.Background(), userID)
+	if err != nil {
+		return
+	}
+
+	if user.TokenUsage != nil {
+		client.send(makeMessage("token-usage-update", user.TokenUsage))
+	}
 }
 
 // handleLLMQuery handles non-streaming LLM queries via WebSocket
@@ -605,6 +628,18 @@ func (m *Manager) handleLLMQuery(client *Client, feedID, question, provider, sys
 			"requestId": requestID,
 		}))
 		return
+	}
+
+	// Update token usage
+	if m.auth != nil && client.userID != "" {
+		userID, err := primitive.ObjectIDFromHex(client.userID)
+		if err == nil {
+			if err := m.auth.UpdateTokenUsage(ctx, userID, resp.TokensUsed); err != nil {
+				log.Printf("failed to update token usage for user %s: %v", client.userID, err)
+			} else {
+				m.sendTokenUsageUpdate(client)
+			}
+		}
 	}
 
 	client.send(makeMessage("llm-response", map[string]interface{}{
@@ -646,6 +681,18 @@ func (m *Manager) handleLLMStreamQuery(client *Client, feedID, question, provide
 				"requestId": requestID,
 			}))
 			return
+		}
+
+		// Update token usage
+		if m.auth != nil && client.userID != "" {
+			userID, err := primitive.ObjectIDFromHex(client.userID)
+			if err == nil {
+				if err := m.auth.UpdateTokenUsage(ctx, userID, resp.TokensUsed); err != nil {
+					log.Printf("failed to update token usage for user %s: %v", client.userID, err)
+				} else {
+					m.sendTokenUsageUpdate(client)
+				}
+			}
 		}
 
 		// Send completion message

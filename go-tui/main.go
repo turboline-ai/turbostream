@@ -230,7 +230,9 @@ type (
 		RequestID string
 		Token     string
 	}
-	aiTickMsg struct{} // For auto-query interval
+	aiTickMsg        struct{} // For auto-query interval
+	userTickMsg      struct{} // For periodic user data refresh
+	dashboardTickMsg struct{} // For dashboard metrics refresh
 )
 
 // Model keeps the application state (Elm-style).
@@ -289,6 +291,15 @@ type model struct {
 	aiLastQuery   time.Time // last query time
 	aiFocused     bool      // whether AI panel is focused for editing
 	aiRequestID   string    // track current request
+
+	// Observability dashboard
+	metricsCollector      *MetricsCollector
+	dashboardMetrics      DashboardMetrics
+	dashboardSelectedFeed int // Selected feed index in dashboard
+
+	// Terminal dimensions
+	termWidth  int
+	termHeight int
 }
 
 func main() {
@@ -395,6 +406,11 @@ func newModel(client *api.Client, backendURL, wsURL, token, presetEmail string) 
 		aiInterval:    10,
 		aiIntervalIdx: 1, // 10 seconds default
 		aiResponse:    "",
+		// Dashboard
+		metricsCollector:      NewMetricsCollector(),
+		dashboardSelectedFeed: 0,
+		termWidth:             120,
+		termHeight:            40,
 	}
 }
 
@@ -403,6 +419,10 @@ func (m model) Init() tea.Cmd {
 	if m.token != "" {
 		cmds = append(cmds, fetchMeCmd(m.client))
 	}
+	// Periodically refresh user data to get latest token usage
+	cmds = append(cmds, tea.Tick(5*time.Minute, func(t time.Time) tea.Msg { return userTickMsg{} }))
+	// Dashboard metrics refresh every 500ms
+	cmds = append(cmds, tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg { return dashboardTickMsg{} }))
 	return tea.Batch(cmds...)
 }
 
@@ -412,7 +432,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case tea.WindowSizeMsg:
-		// no-op for now; could adapt layout later
+		m.termWidth = msg.Width
+		m.termHeight = msg.Height
 	case authResultMsg:
 		m.loading = false
 		if msg.Err != nil {
@@ -434,6 +455,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.user = msg.User
+		if m.user != nil {
+			m.user.TokenUsage = msg.User.TokenUsage
+		}
 		m.screen = screenDashboard
 		m.statusMessage = "Session restored"
 		return m, tea.Batch(loadInitialDataCmd(m.client), connectWS(m.wsURL, m.user.ID, m.userAgent()))
@@ -446,6 +470,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.feeds = msg.Feeds
 		m.errorMessage = ""
+		// Initialize metrics for all feeds
+		for _, feed := range msg.Feeds {
+			m.metricsCollector.InitFeed(feed.ID, feed.Name)
+		}
 		return m, nil
 
 	case subsMsg:
@@ -455,6 +483,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.subs = msg.Subs
+		// If WebSocket is already connected, subscribe to all feeds
+		if m.wsClient != nil {
+			for _, sub := range m.subs {
+				_ = m.wsClient.Subscribe(sub.FeedID)
+			}
+		}
 		return m, nil
 
 	case feedDetailMsg:
@@ -498,7 +532,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.wsClient = msg.Client
 		m.wsStatus = "connected"
-		return m, m.wsClient.ListenCmd()
+		// Re-subscribe to all existing subscriptions via WebSocket
+		var cmds []tea.Cmd
+		cmds = append(cmds, m.wsClient.ListenCmd())
+		for _, sub := range m.subs {
+			_ = m.wsClient.Subscribe(sub.FeedID)
+		}
+		return m, tea.Batch(cmds...)
 
 	case wsStatusMsg:
 		m.wsStatus = msg.Status
@@ -507,23 +547,46 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.Status == "disconnected" {
 			m.wsClient = nil
+			// Update metrics for all feeds
+			for _, feed := range m.feeds {
+				m.metricsCollector.RecordWSStatus(feed.ID, false, msg.Err.Error())
+			}
+		} else if msg.Status == "connected" {
+			// Update metrics for all feeds
+			for _, feed := range m.feeds {
+				m.metricsCollector.RecordWSStatus(feed.ID, true, "")
+			}
 		}
 		return m, m.nextWSListen()
 
 	case feedDataMsg:
+		// Record metrics for the feed
+		m.metricsCollector.InitFeed(msg.FeedID, msg.FeedName)
+		m.metricsCollector.RecordMessage(msg.FeedID, len(msg.Data), true)
+		m.metricsCollector.RecordWSStatus(msg.FeedID, true, "")
+
 		entries := m.feedEntries[msg.FeedID]
 		entries = append([]feedEntry{{FeedID: msg.FeedID, FeedName: msg.FeedName, Event: msg.EventName, Data: msg.Data, Time: msg.Time}}, entries...)
 		if len(entries) > 50 {
 			entries = entries[:50]
 		}
 		m.feedEntries[msg.FeedID] = entries
+
+		// Update cache metrics based on feed entries
+		cacheBytes := uint64(0)
+		for _, e := range entries {
+			cacheBytes += uint64(len(e.Data))
+		}
+		m.metricsCollector.RecordCacheStats(msg.FeedID, len(entries), cacheBytes, 0, 0, 0)
+
 		return m, m.nextWSListen()
 
-	case tokenUsageUpdateMsg:
-		if m.user != nil {
-			m.user.TokenUsage = msg.Usage
-		}
-		return m, m.nextWSListen()
+	case dashboardTickMsg:
+		// Refresh dashboard metrics
+		m.dashboardMetrics = m.metricsCollector.GetMetrics()
+		m.dashboardMetrics.SelectedIdx = m.dashboardSelectedFeed
+		// Continue the tick
+		return m, tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg { return dashboardTickMsg{} })
 
 	case feedCreateMsg:
 		m.loading = false
@@ -576,11 +639,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.aiLoading = false
 		if msg.Err != nil {
 			m.aiResponse = "Error: " + msg.Err.Error()
+			// Record LLM error in metrics
+			if m.selectedFeed != nil {
+				m.metricsCollector.RecordLLMRequest(m.selectedFeed.ID, 0, 0, float64(msg.Duration), 0, true)
+			}
 			return m, m.nextWSListen()
 		}
 		if msg.RequestID == m.aiRequestID {
 			m.aiResponse = msg.Answer
 			m.statusMessage = fmt.Sprintf("AI response received (%s, %dms)", msg.Provider, msg.Duration)
+			// Record LLM metrics (estimate tokens: 1 token ≈ 4 chars)
+			if m.selectedFeed != nil {
+				promptTokens := len(m.aiPrompt.Value()) / 4
+				responseTokens := len(msg.Answer) / 4
+				eventsInPrompt := len(m.feedEntries[m.selectedFeed.ID])
+				m.metricsCollector.RecordLLMRequest(m.selectedFeed.ID, promptTokens, responseTokens, float64(msg.Duration), eventsInPrompt, false)
+			}
 		}
 		return m, m.nextWSListen()
 
@@ -606,6 +680,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Schedule next tick
 		return m, tea.Tick(time.Second, func(t time.Time) tea.Msg { return aiTickMsg{} })
+
+	case userTickMsg:
+		if m.token != "" {
+			return m, fetchMeCmd(m.client)
+		}
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -698,13 +777,41 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Dashboard-specific key handling (up/down for vertical feed sidebar)
+	if m.screen == screenDashboard {
+		switch msg.String() {
+		case "up", "k":
+			// Previous feed in dashboard (vertical navigation)
+			if len(m.dashboardMetrics.Feeds) > 0 {
+				m.dashboardSelectedFeed--
+				if m.dashboardSelectedFeed < 0 {
+					m.dashboardSelectedFeed = len(m.dashboardMetrics.Feeds) - 1
+				}
+				m.dashboardMetrics.SelectedIdx = m.dashboardSelectedFeed
+			}
+			return m, nil
+		case "down", "j":
+			// Next feed in dashboard (vertical navigation)
+			if len(m.dashboardMetrics.Feeds) > 0 {
+				m.dashboardSelectedFeed++
+				if m.dashboardSelectedFeed >= len(m.dashboardMetrics.Feeds) {
+					m.dashboardSelectedFeed = 0
+				}
+				m.dashboardMetrics.SelectedIdx = m.dashboardSelectedFeed
+			}
+			return m, nil
+		}
+	}
+
 	switch msg.String() {
 	case "up":
-		if m.selectedIdx > 0 {
+		// Only for feed list navigation, not dashboard
+		if m.screen != screenDashboard && m.selectedIdx > 0 {
 			m.selectedIdx--
 		}
 	case "down":
-		if m.selectedIdx < len(m.feeds)-1 {
+		// Only for feed list navigation, not dashboard
+		if m.screen != screenDashboard && m.selectedIdx < len(m.feeds)-1 {
 			m.selectedIdx++
 		}
 	case "enter":
@@ -794,8 +901,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.aiPrompt.Blur()
 			return m, nil
 		}
-	case "c":
-		if m.wsClient == nil && m.user != nil {
+	case "r":
+		// Force reconnect - close existing connection if any and reconnect
+		if m.user != nil {
+			if m.wsClient != nil {
+				m.wsClient.Close()
+				m.wsClient = nil
+			}
+			m.wsStatus = "reconnecting"
 			return m, connectWS(m.wsURL, m.user.ID, m.userAgent())
 		}
 	case "l":
@@ -1157,8 +1270,9 @@ func (m model) viewMyFeeds() string {
 	instructBuilder.WriteString("\n")
 	instructBuilder.WriteString(lipgloss.NewStyle().Foreground(brightCyanColor).Render("Actions"))
 	instructBuilder.WriteString("\n")
-	instructBuilder.WriteString("  s        Subscribe/Unsubscribe\n")
-	instructBuilder.WriteString("  Shift+D  Delete feed (own only)\n")
+	instructBuilder.WriteString("  s        Sub/Unsub\n")
+	instructBuilder.WriteString("  r        Reconnect to WS\n")
+	instructBuilder.WriteString("  Shift+D  Delete my feed\n")
 	instructBuilder.WriteString("  l        Logout\n")
 	instructBuilder.WriteString("  q        Quit\n")
 
@@ -1312,13 +1426,19 @@ func (m model) viewMyFeeds() string {
 }
 
 func (m model) viewDashboard() string {
+	// If we have metrics data, show the observability dashboard
+	if len(m.dashboardMetrics.Feeds) > 0 {
+		return renderDashboardView(m.dashboardMetrics, m.termWidth, m.termHeight)
+	}
+
+	// Fallback to simple dashboard when no feed metrics yet
 	builder := strings.Builder{}
 
 	// Render gradient logo
 	builder.WriteString(renderGradientLogo())
 	builder.WriteString("\n")
 
-	builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("📊 Dashboard"))
+	builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("📊 Observability Dashboard"))
 	builder.WriteString("\n\n")
 
 	stats := []string{
@@ -1336,7 +1456,9 @@ func (m model) viewDashboard() string {
 	}
 
 	builder.WriteString("\n")
-	builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Tab/Shift+Tab to switch tabs | q to quit"))
+	builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Subscribe to a feed to see streaming metrics."))
+	builder.WriteString("\n\n")
+	builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Tab/Shift+Tab: switch tabs | h/l: prev/next feed | q: quit"))
 
 	return contentStyle.Render(builder.String())
 }

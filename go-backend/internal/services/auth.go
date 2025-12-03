@@ -176,14 +176,63 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID primitive.Objec
 	return err
 }
 
-// GetUser returns a user by ID without password.
+// GetUser returns a user by ID without password. It also handles the monthly reset
+// of token usage and ensures the user's limit is up-to-date with the current config.
 func (s *AuthService) GetUser(ctx context.Context, id primitive.ObjectID) (*models.User, error) {
 	var user models.User
 	if err := s.users().FindOne(ctx, bson.M{"_id": id}).Decode(&user); err != nil {
 		return nil, err
 	}
-	user.Password = ""
+	user.Password = "" // Don't expose password
+
+	// Check if the token usage needs to be reset for the new month.
+	now := time.Now()
+	currentMonth := now.Format("2006-01")
+	if user.TokenUsage == nil {
+		// If user somehow has no token usage record, create a new one.
+		user.TokenUsage = &models.TokenUsage{
+			CurrentMonth:     currentMonth,
+			TokensUsed:       0,
+			Limit:            s.cfg.TokenQuotaPerMonth,
+			LastResetDate:    now,
+			OverdraftAllowed: true, // Or based on some logic
+		}
+		// Persist the new token usage record.
+		_, err := s.users().UpdateByID(ctx, user.ID, bson.M{"$set": bson.M{"tokenUsage": user.TokenUsage}})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create token usage record: %w", err)
+		}
+	} else if user.TokenUsage.CurrentMonth != currentMonth {
+		// Month has changed, so reset usage and update the limit.
+		user.TokenUsage.CurrentMonth = currentMonth
+		user.TokenUsage.TokensUsed = 0
+		user.TokenUsage.LastResetDate = now
+		user.TokenUsage.Limit = s.cfg.TokenQuotaPerMonth // Ensure limit is updated from config.
+
+		// Persist the changes to the database.
+		_, err := s.users().UpdateByID(ctx, user.ID, bson.M{"$set": bson.M{"tokenUsage": user.TokenUsage}})
+		if err != nil {
+			// If the update fails, we should probably return an error as the user's state is inconsistent.
+			return nil, fmt.Errorf("failed to reset token usage: %w", err)
+		}
+	} else if user.TokenUsage.Limit != s.cfg.TokenQuotaPerMonth {
+		// The monthly quota might have changed, so update the user's limit.
+		user.TokenUsage.Limit = s.cfg.TokenQuotaPerMonth
+		_, err := s.users().UpdateByID(ctx, user.ID, bson.M{"$set": bson.M{"tokenUsage.limit": user.TokenUsage.Limit}})
+		if err != nil {
+			return nil, fmt.Errorf("failed to update token limit: %w", err)
+		}
+	}
+
 	return &user, nil
+}
+
+// UpdateTokenUsage increments the token usage for a user.
+func (s *AuthService) UpdateTokenUsage(ctx context.Context, userID primitive.ObjectID, tokensUsed int) error {
+	_, err := s.users().UpdateByID(ctx, userID, bson.M{
+		"$inc": bson.M{"tokenUsage.tokensUsed": tokensUsed},
+	})
+	return err
 }
 
 // TwoFactorSetup generates a secret and QR code data URL.
