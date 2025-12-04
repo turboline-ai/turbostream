@@ -224,10 +224,6 @@ func renderDashboardView(dm DashboardMetrics, termWidth, termHeight int) string 
 		contentBuilder.WriteString("\n")
 		contentBuilder.WriteString(llmPanel)
 	}
-	contentBuilder.WriteString("\n")
-
-	// Bottom row: Backpressure (full content width)
-	contentBuilder.WriteString(renderBackpressurePanel(fm, contentWidth-2))
 
 	// Join sidebar and content horizontally
 	mainView := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, "  ", contentBuilder.String())
@@ -385,27 +381,22 @@ func renderSummaryBar(fm FeedMetrics, width int) string {
 		wsStatus = badValueStyle.Render("● Disconnected")
 	}
 
-	// Message rates
-	msgRate := fmt.Sprintf("msg/s: %.1f/%.1f/%.1f",
-		fm.MessagesPerSecond1s, fm.MessagesPerSecond10s, fm.MessagesPerSecond60s)
+	// Message rate
+	msgRate := fmt.Sprintf("%.1f msg/s", fm.MessagesPerSecond10s)
 
-	// Byte rates
-	byteRate := fmt.Sprintf("%.1f/%.1f/%.1f KB/s",
-		fm.BytesPerSecond1s/1024, fm.BytesPerSecond10s/1024, fm.BytesPerSecond60s/1024)
+	// Byte rate
+	byteRate := fmt.Sprintf("%.1f KB/s", fm.BytesPerSecond10s/1024)
 
 	// Cache
-	cacheInfo := fmt.Sprintf("cache: %d items (%.2f MB)",
-		fm.CacheItemsCurrent, float64(fm.CacheApproxBytes)/(1024*1024))
+	cacheInfo := fmt.Sprintf("ctx: %d items", fm.CacheItemsCurrent)
 
-	// Context utilization
-	ctxUtil := fmt.Sprintf("ctx: %.1f%%", fm.ContextUtilizationPercent)
-	ctxStyle := colorByThreshold(fm.ContextUtilizationPercent, 50, 80, false)
-	ctxStyled := ctxStyle.Render(ctxUtil)
+	// LLM tokens
+	tokens := fmt.Sprintf("in: %d out: %d", fm.InputTokensLast, fm.OutputTokensLast)
 
 	// LLM latency
 	latency := fmt.Sprintf("lat: %.0fms", fm.LLMLatencyAvgMs)
 
-	parts := []string{wsStatus, msgRate, byteRate, cacheInfo, ctxStyled, latency}
+	parts := []string{wsStatus, msgRate, byteRate, cacheInfo, tokens, latency}
 	summary := strings.Join(parts, "  │  ")
 
 	return summaryBarStyle.Width(width - 4).Render(summary)
@@ -423,29 +414,16 @@ func renderStreamHealthPanel(fm FeedMetrics, width int) string {
 	lines = append(lines, renderColoredMetric("Status", connStatus, metricValueStyle))
 
 	// Message counts
-	lines = append(lines, renderMetric("Messages", fmt.Sprintf("%d recv / %d parsed / %d failed",
-		fm.MessagesReceivedTotal, fm.MessagesParsedTotal, fm.MessagesFailedTotal)))
+	lines = append(lines, renderMetric("Messages Received", fmt.Sprintf("%d", fm.MessagesReceivedTotal)))
 
-	// Message rates
-	lines = append(lines, renderMetric("Rate (1s/10s/60s)",
-		fmt.Sprintf("%.1f / %.1f / %.1f msg/s",
-			fm.MessagesPerSecond1s, fm.MessagesPerSecond10s, fm.MessagesPerSecond60s)))
+	// Message rate
+	lines = append(lines, renderMetric("Rate", fmt.Sprintf("%.1f msg/s", fm.MessagesPerSecond10s)))
 
-	// Byte rates
-	lines = append(lines, renderMetric("Throughput",
-		fmt.Sprintf("%.1f / %.1f / %.1f KB/s",
-			fm.BytesPerSecond1s/1024, fm.BytesPerSecond10s/1024, fm.BytesPerSecond60s/1024)))
+	// Byte rate
+	lines = append(lines, renderMetric("Throughput", fmt.Sprintf("%.1f KB/s", fm.BytesPerSecond10s/1024)))
 
 	// Total bytes
 	lines = append(lines, renderMetric("Total Bytes", humanizeBytes(fm.BytesReceivedTotal)))
-
-	// Sequence gaps and late messages
-	gapStyle := goodValueStyle
-	if fm.SequenceGapsDetectedTotal > 0 {
-		gapStyle = warnValueStyle
-	}
-	lines = append(lines, renderColoredMetric("Seq Gaps",
-		fmt.Sprintf("%d", fm.SequenceGapsDetectedTotal), gapStyle))
 
 	// Last message age
 	ageStyle := goodValueStyle
@@ -462,25 +440,15 @@ func renderStreamHealthPanel(fm FeedMetrics, width int) string {
 	lines = append(lines, renderMetric("Reconnects", fmt.Sprintf("%d", fm.ReconnectsTotal)))
 	lines = append(lines, renderMetric("Uptime", humanizeDuration(fm.CurrentUptimeSeconds)))
 
-	if fm.LastDisconnectReason != "" {
-		lines = append(lines, renderColoredMetric("Last DC",
-			truncateString(fm.LastDisconnectReason, 20), warnValueStyle))
-	}
-
 	return renderPanel("📡 Stream / WebSocket", strings.Join(lines, "\n"), width)
 }
 
-// renderCacheHealthPanel renders the cache health panel
+// renderCacheHealthPanel renders the LLM context panel
 func renderCacheHealthPanel(fm FeedMetrics, width int) string {
 	var lines []string
 
-	// Item counts
-	itemStyle := goodValueStyle
-	if fm.CacheItemsCurrent > fm.CacheItemsMaxSeen*80/100 {
-		itemStyle = warnValueStyle
-	}
-	lines = append(lines, renderColoredMetric("Items",
-		fmt.Sprintf("%d / %d max", fm.CacheItemsCurrent, fm.CacheItemsMaxSeen), itemStyle))
+	// Items in context
+	lines = append(lines, renderMetric("Events in Context", fmt.Sprintf("%d", fm.CacheItemsCurrent)))
 
 	// Memory usage
 	memStyle := goodValueStyle
@@ -490,72 +458,24 @@ func renderCacheHealthPanel(fm FeedMetrics, width int) string {
 	if fm.CacheApproxBytes > 100*1024*1024 { // > 100MB
 		memStyle = badValueStyle
 	}
-	lines = append(lines, renderColoredMetric("Memory", humanizeBytes(fm.CacheApproxBytes), memStyle))
+	lines = append(lines, renderColoredMetric("Context Size", humanizeBytes(fm.CacheApproxBytes), memStyle))
 
-	// Per-item size
-	lines = append(lines, renderMetric("Avg Item Size", humanizeBytesInt(int(fm.CacheApproxBytesPerItem))))
+	// Age stats - how far back context goes
+	lines = append(lines, renderMetric("Context Age", humanizeDuration(fm.OldestItemAgeSeconds)))
 
-	// Age stats
-	lines = append(lines, renderMetric("Oldest Item", humanizeDuration(fm.OldestItemAgeSeconds)))
-	lines = append(lines, renderMetric("Avg Age", humanizeDuration(fm.AverageItemAgeSeconds)))
-
-	// Operations
-	lines = append(lines, renderMetric("Inserts", fmt.Sprintf("%d", fm.CacheInsertsTotal)))
-	lines = append(lines, renderMetric("Deletes", fmt.Sprintf("%d", fm.CacheDeletesTotal)))
-
-	// Evictions
-	evictStyle := goodValueStyle
-	if fm.CacheEvictionsTotal > 0 {
-		evictStyle = warnValueStyle
-	}
-	lines = append(lines, renderColoredMetric("Evictions",
-		fmt.Sprintf("%d (%.1f/s)", fm.CacheEvictionsTotal, fm.CacheEvictionsPerSecond), evictStyle))
-
-	return renderPanel("💾 In-Memory Cache", strings.Join(lines, "\n"), width)
+	return renderPanel("💾 LLM Context", strings.Join(lines, "\n"), width)
 }
 
-// renderPayloadPanel renders the payload size panel with histogram
+// renderPayloadPanel renders the payload size panel
 func renderPayloadPanel(fm FeedMetrics, width int) string {
 	var lines []string
 
 	// Numeric stats
-	lines = append(lines, renderMetric("Last", humanizeBytesInt(fm.PayloadSizeLastBytes)))
-	lines = append(lines, renderMetric("Avg", humanizeBytesInt(int(fm.PayloadSizeAvgBytes))))
-	lines = append(lines, renderMetric("P50/P95/P99",
-		fmt.Sprintf("%s / %s / %s",
-			humanizeBytesInt(fm.PayloadSizeP50Bytes),
-			humanizeBytesInt(fm.PayloadSizeP95Bytes),
-			humanizeBytesInt(fm.PayloadSizeP99Bytes))))
-	lines = append(lines, renderMetric("Min/Max",
-		fmt.Sprintf("%s / %s",
-			humanizeBytesInt(fm.PayloadSizeMinBytes),
-			humanizeBytesInt(fm.PayloadSizeMaxBytes))))
+	lines = append(lines, renderMetric("Last Payload", humanizeBytesInt(fm.PayloadSizeLastBytes)))
+	lines = append(lines, renderMetric("Avg Payload", humanizeBytesInt(int(fm.PayloadSizeAvgBytes))))
+	lines = append(lines, renderMetric("Max Payload", humanizeBytesInt(fm.PayloadSizeMaxBytes)))
 
-	lines = append(lines, "")
-	lines = append(lines, metricLabelStyle.Render("Size Distribution:"))
-
-	// Histogram
-	bucketLabels := []string{"<1KB", "1-4KB", "4-16KB", "16-64KB", ">64KB"}
-	var maxCount uint64
-	for _, count := range fm.PayloadHistogramCounts {
-		if count > maxCount {
-			maxCount = count
-		}
-	}
-
-	barWidth := width - 24 // Account for label and count
-	if barWidth < 10 {
-		barWidth = 10
-	}
-
-	for i, label := range bucketLabels {
-		count := fm.PayloadHistogramCounts[i]
-		bar := renderBar(count, maxCount, barWidth)
-		line := fmt.Sprintf("%s %s %d", chartLabelStyle.Render(label), bar, count)
-		lines = append(lines, line)
-	}
-
-	return renderPanel("📊 Payload Size (bytes)", strings.Join(lines, "\n"), width)
+	return renderPanel("📊 Payload Size", strings.Join(lines, "\n"), width)
 }
 
 // renderLLMPanel renders the LLM usage panel
@@ -563,14 +483,25 @@ func renderLLMPanel(fm FeedMetrics, width int) string {
 	var lines []string
 
 	// Request counts
-	lines = append(lines, renderMetric("Requests", fmt.Sprintf("%d (%.2f/s)",
-		fm.LLMRequestsTotal, fm.LLMRequestsPerSecond)))
+	lines = append(lines, renderMetric("Total Requests", fmt.Sprintf("%d", fm.LLMRequestsTotal)))
 
-	// Token usage
-	lines = append(lines, renderMetric("Prompt Tokens", fmt.Sprintf("%.0f avg / %.0f P95",
-		fm.PromptTokensAvg, fm.PromptTokensP95)))
-	lines = append(lines, renderMetric("Response Tokens", fmt.Sprintf("%.0f avg", fm.ResponseTokensAvg)))
-	lines = append(lines, renderMetric("Total Tokens", fmt.Sprintf("%.0f avg", fm.TotalTokensAvg)))
+	// Token usage - Last request (most important)
+	lines = append(lines, "")
+	lines = append(lines, metricLabelStyle.Render("Last Request:"))
+	lines = append(lines, renderMetric("  Input Tokens", fmt.Sprintf("%d", fm.InputTokensLast)))
+	lines = append(lines, renderMetric("  Output Tokens", fmt.Sprintf("%d", fm.OutputTokensLast)))
+
+	// Token totals
+	lines = append(lines, "")
+	lines = append(lines, metricLabelStyle.Render("Session Totals:"))
+	lines = append(lines, renderMetric("  Input Tokens", fmt.Sprintf("%d", fm.InputTokensTotal)))
+	lines = append(lines, renderMetric("  Output Tokens", fmt.Sprintf("%d", fm.OutputTokensTotal)))
+	totalTokens := fm.InputTokensTotal + fm.OutputTokensTotal
+	lines = append(lines, renderMetric("  Total Tokens", fmt.Sprintf("%d", totalTokens)))
+
+	// Events in context
+	lines = append(lines, "")
+	lines = append(lines, renderMetric("Events in Context", fmt.Sprintf("%d", fm.EventsInContextCurrent)))
 
 	// Context utilization
 	ctxStyle := colorByThreshold(fm.ContextUtilizationPercent, 50, 80, false)
@@ -587,8 +518,8 @@ func renderLLMPanel(fm FeedMetrics, width int) string {
 	if fm.LLMLatencyAvgMs > 5000 {
 		latStyle = badValueStyle
 	}
-	lines = append(lines, renderColoredMetric("Latency",
-		fmt.Sprintf("%.0fms avg / %.0fms P95", fm.LLMLatencyAvgMs, fm.LLMLatencyP95Ms), latStyle))
+	lines = append(lines, renderColoredMetric("Avg Latency",
+		fmt.Sprintf("%.0fms", fm.LLMLatencyAvgMs), latStyle))
 
 	// Errors
 	errStyle := goodValueStyle
@@ -596,17 +527,6 @@ func renderLLMPanel(fm FeedMetrics, width int) string {
 		errStyle = badValueStyle
 	}
 	lines = append(lines, renderColoredMetric("Errors", fmt.Sprintf("%d", fm.LLMErrorsTotal), errStyle))
-
-	// Events per prompt
-	lines = append(lines, renderMetric("Events/Prompt",
-		fmt.Sprintf("%.1f avg / %d max", fm.EventsPerPromptAvg, fm.EventsPerPromptMax)))
-
-	// Warning for high context utilization
-	if fm.ContextUtilizationPercent > 95 {
-		lines = append(lines, "")
-		lines = append(lines, badValueStyle.Render("⚠ Context window nearly full!"))
-		lines = append(lines, warnValueStyle.Render("  Consider pruning or summarization"))
-	}
 
 	return renderPanel("🤖 LLM / Tokens", strings.Join(lines, "\n"), width)
 }
@@ -638,50 +558,6 @@ func renderContextBar(percent float64, width int) string {
 	}
 
 	return "  [" + bar.String() + "]"
-}
-
-// renderBackpressurePanel renders the backpressure panel
-func renderBackpressurePanel(fm FeedMetrics, width int) string {
-	var lines []string
-
-	// Queue length
-	queueStyle := goodValueStyle
-	if fm.PendingEventsQueueLength > 10 {
-		queueStyle = warnValueStyle
-	}
-	if fm.PendingEventsQueueLength > 100 {
-		queueStyle = badValueStyle
-	}
-	lines = append(lines, renderColoredMetric("Queue Length",
-		fmt.Sprintf("%d / %d max seen", fm.PendingEventsQueueLength, fm.PendingEventsQueueMaxSeen), queueStyle))
-
-	// Queue age
-	ageStyle := goodValueStyle
-	if fm.PendingEventsOldestAgeSeconds > 5 {
-		ageStyle = warnValueStyle
-	}
-	if fm.PendingEventsOldestAgeSeconds > 30 {
-		ageStyle = badValueStyle
-	}
-	lines = append(lines, renderColoredMetric("Oldest Event Age",
-		humanizeDuration(fm.PendingEventsOldestAgeSeconds), ageStyle))
-
-	// Dropped events
-	dropStyle := goodValueStyle
-	if fm.EventsDroppedDueToBackpressure > 0 {
-		dropStyle = badValueStyle
-	}
-	lines = append(lines, renderColoredMetric("Events Dropped",
-		fmt.Sprintf("%d", fm.EventsDroppedDueToBackpressure), dropStyle))
-
-	// Warning for backpressure
-	if fm.PendingEventsQueueLength > 0 && fm.PendingEventsOldestAgeSeconds > 10 {
-		lines = append(lines, "")
-		lines = append(lines, badValueStyle.Render("⚠ System falling behind! Consider scaling or reducing load."))
-	}
-
-	content := strings.Join(lines, "  │  ")
-	return renderPanel("⚡ Pipeline / Backpressure", content, width)
 }
 
 // truncateString truncates a string to a maximum length

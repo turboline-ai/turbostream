@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// FeedMetrics contains all observability metrics for a single feed
+// FeedMetrics contains observability metrics for a single feed
 type FeedMetrics struct {
 	// Metadata
 	FeedID      string
@@ -14,68 +14,35 @@ type FeedMetrics struct {
 	LastUpdated time.Time
 
 	// 1) Stream / WebSocket health
-	MessagesReceivedTotal     uint64
-	MessagesParsedTotal       uint64
-	MessagesFailedTotal       uint64
-	MessagesPerSecond1s       float64
-	MessagesPerSecond10s      float64
-	MessagesPerSecond60s      float64
-	BytesReceivedTotal        uint64
-	BytesPerSecond1s          float64
-	BytesPerSecond10s         float64
-	BytesPerSecond60s         float64
-	SequenceGapsDetectedTotal uint64
-	LateMessagesTotal         uint64
-	LastMessageAgeSeconds     float64 // now - lastMessageTime
-	WSConnected               bool
-	ReconnectsTotal           uint64
-	CurrentUptimeSeconds      float64
-	LastDisconnectReason      string
+	MessagesReceivedTotal uint64
+	MessagesPerSecond10s  float64
+	BytesReceivedTotal    uint64
+	BytesPerSecond10s     float64
+	LastMessageAgeSeconds float64 // now - lastMessageTime
+	WSConnected           bool
+	ReconnectsTotal       uint64
+	CurrentUptimeSeconds  float64
 
-	// 2) In-memory cache health
-	CacheItemsCurrent       int
-	CacheItemsMaxSeen       int
-	CacheInsertsTotal       uint64
-	CacheDeletesTotal       uint64
-	CacheEvictionsTotal     uint64
-	CacheEvictionsPerSecond float64
-	OldestItemAgeSeconds    float64
-	AverageItemAgeSeconds   float64
-	CacheApproxBytes        uint64 // sum of len(rawJSON) for cached items
-	CacheApproxBytesPerItem float64
+	// 2) In-memory cache health (context for LLM)
+	CacheItemsCurrent    int
+	CacheApproxBytes     uint64  // sum of len(rawJSON) for cached items
+	OldestItemAgeSeconds float64 // how far back the context goes
 
 	// 3) Payload size stats (recent window)
 	PayloadSizeLastBytes int
-	PayloadSizeMinBytes  int
-	PayloadSizeMaxBytes  int
 	PayloadSizeAvgBytes  float64
-	PayloadSizeP50Bytes  int
-	PayloadSizeP95Bytes  int
-	PayloadSizeP99Bytes  int
-
-	// Histogram buckets for payload sizes.
-	// Buckets: <1KB, 1-4KB, 4-16KB, 16-64KB, >64KB
-	PayloadHistogramCounts [5]uint64
+	PayloadSizeMaxBytes  int
 
 	// 4) LLM / token usage per feed
 	LLMRequestsTotal          uint64
-	LLMRequestsPerSecond      float64
-	PromptTokensAvg           float64
-	PromptTokensP95           float64
-	ResponseTokensAvg         float64
-	TotalTokensAvg            float64
+	InputTokensTotal          uint64  // Total input/prompt tokens used
+	OutputTokensTotal         uint64  // Total output/response tokens used
+	InputTokensLast           int     // Input tokens in last request
+	OutputTokensLast          int     // Output tokens in last request
 	ContextUtilizationPercent float64 // prompt_tokens / model_context_limit * 100
 	LLMLatencyAvgMs           float64
-	LLMLatencyP95Ms           float64
 	LLMErrorsTotal            uint64
-	EventsPerPromptAvg        float64
-	EventsPerPromptMax        int
-
-	// 5) Backpressure / queue health
-	PendingEventsQueueLength       int
-	PendingEventsQueueMaxSeen      int
-	PendingEventsOldestAgeSeconds  float64
-	EventsDroppedDueToBackpressure uint64
+	EventsInContextCurrent    int // Number of feed events currently in LLM context
 }
 
 // DashboardMetrics holds metrics for all feeds
@@ -281,14 +248,18 @@ func (p *payloadSampler) Last() int {
 
 // tokenSampler tracks LLM token usage
 type tokenSampler struct {
-	mu             sync.Mutex
-	promptTokens   []int
-	responseTokens []int
-	latencies      []float64
-	eventsPerQuery []int
-	times          []time.Time
-	maxSize        int
-	duration       time.Duration
+	mu                sync.Mutex
+	promptTokens      []int
+	responseTokens    []int
+	latencies         []float64
+	eventsPerQuery    []int
+	times             []time.Time
+	maxSize           int
+	duration          time.Duration
+	totalInputTokens  uint64 // Running total of input tokens
+	totalOutputTokens uint64 // Running total of output tokens
+	lastInputTokens   int    // Last request input tokens
+	lastOutputTokens  int    // Last request output tokens
 }
 
 func newTokenSampler(maxSamples int, duration time.Duration) *tokenSampler {
@@ -307,6 +278,12 @@ func (t *tokenSampler) Add(promptTokens, responseTokens int, latencyMs float64, 
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	now := time.Now()
+
+	// Track totals
+	t.totalInputTokens += uint64(promptTokens)
+	t.totalOutputTokens += uint64(responseTokens)
+	t.lastInputTokens = promptTokens
+	t.lastOutputTokens = responseTokens
 
 	// Prune old samples
 	cutoff := now.Add(-t.duration)
@@ -332,36 +309,18 @@ func (t *tokenSampler) Add(promptTokens, responseTokens int, latencyMs float64, 
 	t.times = append(t.times, now)
 }
 
-func (t *tokenSampler) Stats() (promptAvg, promptP95, responseAvg, latencyAvg, latencyP95 float64, eventsAvg float64, eventsMax int) {
+func (t *tokenSampler) Stats() (inputTotal, outputTotal uint64, inputLast, outputLast int, latencyAvg float64, eventsMax int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if len(t.promptTokens) == 0 {
+	inputTotal = t.totalInputTokens
+	outputTotal = t.totalOutputTokens
+	inputLast = t.lastInputTokens
+	outputLast = t.lastOutputTokens
+
+	if len(t.latencies) == 0 {
 		return
 	}
-
-	// Prompt tokens
-	var promptSum int
-	for _, v := range t.promptTokens {
-		promptSum += v
-	}
-	promptAvg = float64(promptSum) / float64(len(t.promptTokens))
-
-	sortedPrompt := make([]int, len(t.promptTokens))
-	copy(sortedPrompt, t.promptTokens)
-	sort.Ints(sortedPrompt)
-	p95Idx := len(sortedPrompt) * 95 / 100
-	if p95Idx >= len(sortedPrompt) {
-		p95Idx = len(sortedPrompt) - 1
-	}
-	promptP95 = float64(sortedPrompt[p95Idx])
-
-	// Response tokens
-	var respSum int
-	for _, v := range t.responseTokens {
-		respSum += v
-	}
-	responseAvg = float64(respSum) / float64(len(t.responseTokens))
 
 	// Latencies
 	var latSum float64
@@ -370,24 +329,12 @@ func (t *tokenSampler) Stats() (promptAvg, promptP95, responseAvg, latencyAvg, l
 	}
 	latencyAvg = latSum / float64(len(t.latencies))
 
-	sortedLat := make([]float64, len(t.latencies))
-	copy(sortedLat, t.latencies)
-	sort.Float64s(sortedLat)
-	latP95Idx := len(sortedLat) * 95 / 100
-	if latP95Idx >= len(sortedLat) {
-		latP95Idx = len(sortedLat) - 1
-	}
-	latencyP95 = sortedLat[latP95Idx]
-
-	// Events per prompt
-	var eventsSum int
+	// Events per prompt max
 	for _, v := range t.eventsPerQuery {
-		eventsSum += v
 		if v > eventsMax {
 			eventsMax = v
 		}
 	}
-	eventsAvg = float64(eventsSum) / float64(len(t.eventsPerQuery))
 
 	return
 }
@@ -413,10 +360,9 @@ func (mc *MetricsCollector) InitFeed(feedID, name string) {
 
 	if _, exists := mc.feedMetrics[feedID]; !exists {
 		mc.feedMetrics[feedID] = &FeedMetrics{
-			FeedID:              feedID,
-			Name:                name,
-			LastUpdated:         time.Now(),
-			PayloadSizeMinBytes: int(^uint(0) >> 1), // Max int
+			FeedID:      feedID,
+			Name:        name,
+			LastUpdated: time.Now(),
 		}
 		mc.messageWindows[feedID] = newSlidingWindow(time.Minute)
 		mc.byteWindows[feedID] = newSlidingWindow(time.Minute)
@@ -428,7 +374,7 @@ func (mc *MetricsCollector) InitFeed(feedID, name string) {
 }
 
 // RecordMessage records a received message for a feed
-func (mc *MetricsCollector) RecordMessage(feedID string, payloadSize int, parsed bool) {
+func (mc *MetricsCollector) RecordMessage(feedID string, payloadSize int) {
 	mc.mu.Lock()
 	fm, exists := mc.feedMetrics[feedID]
 	if !exists {
@@ -437,29 +383,13 @@ func (mc *MetricsCollector) RecordMessage(feedID string, payloadSize int, parsed
 	}
 
 	fm.MessagesReceivedTotal++
-	if parsed {
-		fm.MessagesParsedTotal++
-	} else {
-		fm.MessagesFailedTotal++
-	}
 	fm.BytesReceivedTotal += uint64(payloadSize)
 	fm.PayloadSizeLastBytes = payloadSize
+	if payloadSize > fm.PayloadSizeMaxBytes {
+		fm.PayloadSizeMaxBytes = payloadSize
+	}
 	fm.LastUpdated = time.Now()
 	mc.lastMsgTimes[feedID] = time.Now()
-
-	// Update histogram
-	switch {
-	case payloadSize < 1024:
-		fm.PayloadHistogramCounts[0]++
-	case payloadSize < 4096:
-		fm.PayloadHistogramCounts[1]++
-	case payloadSize < 16384:
-		fm.PayloadHistogramCounts[2]++
-	case payloadSize < 65536:
-		fm.PayloadHistogramCounts[3]++
-	default:
-		fm.PayloadHistogramCounts[4]++
-	}
 
 	msgWindow := mc.messageWindows[feedID]
 	byteWindow := mc.byteWindows[feedID]
@@ -473,7 +403,7 @@ func (mc *MetricsCollector) RecordMessage(feedID string, payloadSize int, parsed
 }
 
 // RecordWSStatus records WebSocket connection status
-func (mc *MetricsCollector) RecordWSStatus(feedID string, connected bool, disconnectReason string) {
+func (mc *MetricsCollector) RecordWSStatus(feedID string, connected bool) {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
 
@@ -487,7 +417,6 @@ func (mc *MetricsCollector) RecordWSStatus(feedID string, connected bool, discon
 
 	if !connected && wasConnected {
 		fm.ReconnectsTotal++
-		fm.LastDisconnectReason = disconnectReason
 		mc.startTimes[feedID] = time.Now() // Reset uptime
 	} else if connected && !wasConnected {
 		mc.startTimes[feedID] = time.Now()
@@ -495,7 +424,7 @@ func (mc *MetricsCollector) RecordWSStatus(feedID string, connected bool, discon
 }
 
 // RecordCacheStats records cache statistics
-func (mc *MetricsCollector) RecordCacheStats(feedID string, itemCount int, approxBytes uint64, oldestAge, avgAge float64, evictions uint64) {
+func (mc *MetricsCollector) RecordCacheStats(feedID string, itemCount int, approxBytes uint64, oldestAge float64) {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
 
@@ -505,20 +434,12 @@ func (mc *MetricsCollector) RecordCacheStats(feedID string, itemCount int, appro
 	}
 
 	fm.CacheItemsCurrent = itemCount
-	if itemCount > fm.CacheItemsMaxSeen {
-		fm.CacheItemsMaxSeen = itemCount
-	}
 	fm.CacheApproxBytes = approxBytes
-	if itemCount > 0 {
-		fm.CacheApproxBytesPerItem = float64(approxBytes) / float64(itemCount)
-	}
 	fm.OldestItemAgeSeconds = oldestAge
-	fm.AverageItemAgeSeconds = avgAge
-	fm.CacheEvictionsTotal = evictions
 }
 
-// RecordLLMRequest records an LLM request
-func (mc *MetricsCollector) RecordLLMRequest(feedID string, promptTokens, responseTokens int, latencyMs float64, eventsInPrompt int, isError bool) {
+// RecordLLMRequest records an LLM request with token counts
+func (mc *MetricsCollector) RecordLLMRequest(feedID string, inputTokens, outputTokens int, latencyMs float64, eventsInContext int, isError bool) {
 	mc.mu.Lock()
 	fm, exists := mc.feedMetrics[feedID]
 	if !exists {
@@ -527,6 +448,7 @@ func (mc *MetricsCollector) RecordLLMRequest(feedID string, promptTokens, respon
 	}
 
 	fm.LLMRequestsTotal++
+	fm.EventsInContextCurrent = eventsInContext
 	if isError {
 		fm.LLMErrorsTotal++
 	}
@@ -534,25 +456,7 @@ func (mc *MetricsCollector) RecordLLMRequest(feedID string, promptTokens, respon
 	sampler := mc.llmTokenSamples[feedID]
 	mc.mu.Unlock()
 
-	sampler.Add(promptTokens, responseTokens, latencyMs, eventsInPrompt)
-}
-
-// RecordBackpressure records backpressure metrics
-func (mc *MetricsCollector) RecordBackpressure(feedID string, queueLen int, oldestAge float64, dropped uint64) {
-	mc.mu.Lock()
-	defer mc.mu.Unlock()
-
-	fm, exists := mc.feedMetrics[feedID]
-	if !exists {
-		return
-	}
-
-	fm.PendingEventsQueueLength = queueLen
-	if queueLen > fm.PendingEventsQueueMaxSeen {
-		fm.PendingEventsQueueMaxSeen = queueLen
-	}
-	fm.PendingEventsOldestAgeSeconds = oldestAge
-	fm.EventsDroppedDueToBackpressure = dropped
+	sampler.Add(inputTokens, outputTokens, latencyMs, eventsInContext)
 }
 
 // GetMetrics returns computed metrics for all feeds
@@ -567,47 +471,36 @@ func (mc *MetricsCollector) GetMetrics() DashboardMetrics {
 		// Copy the metrics
 		metrics := *fm
 
-		// Compute rates
+		// Compute rates (10s window)
 		if msgWindow, ok := mc.messageWindows[feedID]; ok {
-			metrics.MessagesPerSecond1s = msgWindow.Rate(time.Second)
 			metrics.MessagesPerSecond10s = msgWindow.Rate(10 * time.Second)
-			metrics.MessagesPerSecond60s = msgWindow.Rate(time.Minute)
 		}
 
 		if byteWindow, ok := mc.byteWindows[feedID]; ok {
-			metrics.BytesPerSecond1s = byteWindow.Rate(time.Second)
 			metrics.BytesPerSecond10s = byteWindow.Rate(10 * time.Second)
-			metrics.BytesPerSecond60s = byteWindow.Rate(time.Minute)
 		}
 
 		// Compute payload stats
 		if sampler, ok := mc.payloadSamples[feedID]; ok {
-			min, max, avg, p50, p95, p99 := sampler.Stats()
-			metrics.PayloadSizeMinBytes = min
-			metrics.PayloadSizeMaxBytes = max
+			_, _, avg, _, _, _ := sampler.Stats()
 			metrics.PayloadSizeAvgBytes = avg
-			metrics.PayloadSizeP50Bytes = p50
-			metrics.PayloadSizeP95Bytes = p95
-			metrics.PayloadSizeP99Bytes = p99
 		}
 
 		// Compute LLM stats
 		if sampler, ok := mc.llmTokenSamples[feedID]; ok {
-			promptAvg, promptP95, responseAvg, latAvg, latP95, eventsAvg, eventsMax := sampler.Stats()
-			metrics.PromptTokensAvg = promptAvg
-			metrics.PromptTokensP95 = promptP95
-			metrics.ResponseTokensAvg = responseAvg
-			metrics.TotalTokensAvg = promptAvg + responseAvg
+			inputTotal, outputTotal, inputLast, outputLast, latAvg, eventsMax := sampler.Stats()
+			metrics.InputTokensTotal = inputTotal
+			metrics.OutputTokensTotal = outputTotal
+			metrics.InputTokensLast = inputLast
+			metrics.OutputTokensLast = outputLast
 			metrics.LLMLatencyAvgMs = latAvg
-			metrics.LLMLatencyP95Ms = latP95
-			metrics.EventsPerPromptAvg = eventsAvg
-			metrics.EventsPerPromptMax = eventsMax
 
 			// Context utilization (assume 128K context window for GPT-4o)
 			const modelContextLimit = 128000
-			if promptAvg > 0 {
-				metrics.ContextUtilizationPercent = (promptAvg / modelContextLimit) * 100
+			if inputLast > 0 {
+				metrics.ContextUtilizationPercent = (float64(inputLast) / modelContextLimit) * 100
 			}
+			_ = eventsMax // Not used in simplified metrics
 		}
 
 		// Compute uptime and last message age
@@ -643,25 +536,16 @@ func (mc *MetricsCollector) GetFeedMetrics(feedID string) *FeedMetrics {
 		// Compute real-time rates
 		now := time.Now()
 		if msgWindow, ok := mc.messageWindows[feedID]; ok {
-			metrics.MessagesPerSecond1s = msgWindow.Rate(time.Second)
 			metrics.MessagesPerSecond10s = msgWindow.Rate(10 * time.Second)
-			metrics.MessagesPerSecond60s = msgWindow.Rate(time.Minute)
 		}
 
 		if byteWindow, ok := mc.byteWindows[feedID]; ok {
-			metrics.BytesPerSecond1s = byteWindow.Rate(time.Second)
 			metrics.BytesPerSecond10s = byteWindow.Rate(10 * time.Second)
-			metrics.BytesPerSecond60s = byteWindow.Rate(time.Minute)
 		}
 
 		if sampler, ok := mc.payloadSamples[feedID]; ok {
-			min, max, avg, p50, p95, p99 := sampler.Stats()
-			metrics.PayloadSizeMinBytes = min
-			metrics.PayloadSizeMaxBytes = max
+			_, _, avg, _, _, _ := sampler.Stats()
 			metrics.PayloadSizeAvgBytes = avg
-			metrics.PayloadSizeP50Bytes = p50
-			metrics.PayloadSizeP95Bytes = p95
-			metrics.PayloadSizeP99Bytes = p99
 		}
 
 		if startTime, ok := mc.startTimes[feedID]; ok {

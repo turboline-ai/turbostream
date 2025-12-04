@@ -549,12 +549,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.wsClient = nil
 			// Update metrics for all feeds
 			for _, feed := range m.feeds {
-				m.metricsCollector.RecordWSStatus(feed.ID, false, msg.Err.Error())
+				m.metricsCollector.RecordWSStatus(feed.ID, false)
 			}
 		} else if msg.Status == "connected" {
 			// Update metrics for all feeds
 			for _, feed := range m.feeds {
-				m.metricsCollector.RecordWSStatus(feed.ID, true, "")
+				m.metricsCollector.RecordWSStatus(feed.ID, true)
 			}
 		}
 		return m, m.nextWSListen()
@@ -562,8 +562,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case feedDataMsg:
 		// Record metrics for the feed
 		m.metricsCollector.InitFeed(msg.FeedID, msg.FeedName)
-		m.metricsCollector.RecordMessage(msg.FeedID, len(msg.Data), true)
-		m.metricsCollector.RecordWSStatus(msg.FeedID, true, "")
+		m.metricsCollector.RecordMessage(msg.FeedID, len(msg.Data))
+		m.metricsCollector.RecordWSStatus(msg.FeedID, true)
 
 		entries := m.feedEntries[msg.FeedID]
 		entries = append([]feedEntry{{FeedID: msg.FeedID, FeedName: msg.FeedName, Event: msg.EventName, Data: msg.Data, Time: msg.Time}}, entries...)
@@ -577,7 +577,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, e := range entries {
 			cacheBytes += uint64(len(e.Data))
 		}
-		m.metricsCollector.RecordCacheStats(msg.FeedID, len(entries), cacheBytes, 0, 0, 0)
+		m.metricsCollector.RecordCacheStats(msg.FeedID, len(entries), cacheBytes, 0)
 
 		return m, m.nextWSListen()
 
@@ -1121,9 +1121,9 @@ func (m model) View() string {
 func (m model) viewAuth() string {
 	builder := strings.Builder{}
 
-	// Header with logo
-	builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("⚡ TurboStream TUI"))
-	builder.WriteString("\n\n")
+	// Render gradient ASCII logo
+	builder.WriteString(renderGradientLogo())
+	builder.WriteString("\n")
 
 	if m.authMode == "login" {
 		builder.WriteString(lipgloss.NewStyle().Foreground(brightCyanColor).Render("Login"))
@@ -1433,10 +1433,6 @@ func (m model) viewDashboard() string {
 
 	// Fallback to simple dashboard when no feed metrics yet
 	builder := strings.Builder{}
-
-	// Render gradient logo
-	builder.WriteString(renderGradientLogo())
-	builder.WriteString("\n")
 
 	builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("📊 Observability Dashboard"))
 	builder.WriteString("\n\n")
