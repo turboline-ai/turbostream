@@ -53,7 +53,93 @@ var (
 	chartLabelStyle = lipgloss.NewStyle().
 			Foreground(dimCyanColor).
 			Width(8)
+
+	// Sparkline character styles
+	sparklineChars = []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
+
+	sparklineGreenStyle  = lipgloss.NewStyle().Foreground(greenColor)
+	sparklineCyanStyle   = lipgloss.NewStyle().Foreground(cyanColor)
+	sparklineYellowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#F1C40F"))
+	sparklineRedStyle    = lipgloss.NewStyle().Foreground(redColor)
 )
+
+// renderSparkline renders a sparkline chart from data values
+// width determines how many of the most recent values to show
+// invertColor: if true, higher values are red (bad), if false, higher values are green (good)
+func renderSparkline(data []float64, width int, invertColor bool) string {
+	if len(data) == 0 {
+		return strings.Repeat("▁", width)
+	}
+
+	// Take most recent 'width' values
+	start := 0
+	if len(data) > width {
+		start = len(data) - width
+	}
+	values := data[start:]
+
+	// Find min/max for scaling
+	minVal, maxVal := values[0], values[0]
+	for _, v := range values {
+		if v < minVal {
+			minVal = v
+		}
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+
+	// Build sparkline
+	var sb strings.Builder
+	for _, v := range values {
+		// Normalize to 0-7 (8 levels)
+		level := 0
+		if maxVal > minVal {
+			level = int((v - minVal) / (maxVal - minVal) * 7)
+		}
+		if level > 7 {
+			level = 7
+		}
+		if level < 0 {
+			level = 0
+		}
+
+		char := sparklineChars[level]
+
+		// Color based on level and invertColor setting
+		var style lipgloss.Style
+		if invertColor {
+			// For latency: high = red (bad)
+			switch {
+			case level >= 6:
+				style = sparklineRedStyle
+			case level >= 4:
+				style = sparklineYellowStyle
+			default:
+				style = sparklineGreenStyle
+			}
+		} else {
+			// For throughput: high = green (good)
+			switch {
+			case level >= 6:
+				style = sparklineGreenStyle
+			case level >= 4:
+				style = sparklineCyanStyle
+			default:
+				style = sparklineYellowStyle
+			}
+		}
+
+		sb.WriteString(style.Render(char))
+	}
+
+	// Pad with empty bars if not enough data
+	for i := len(values); i < width; i++ {
+		sb.WriteString(lipgloss.NewStyle().Foreground(grayColor).Render("▁"))
+	}
+
+	return sb.String()
+}
 
 // humanizeBytes converts bytes to human-readable format
 func humanizeBytes(bytes uint64) string {
@@ -393,10 +479,10 @@ func renderSummaryBar(fm FeedMetrics, width int) string {
 	// LLM tokens
 	tokens := fmt.Sprintf("in: %d out: %d", fm.InputTokensLast, fm.OutputTokensLast)
 
-	// LLM latency
-	latency := fmt.Sprintf("lat: %.0fms", fm.LLMLatencyAvgMs)
+	// Generation time
+	genTime := fmt.Sprintf("gen: %.0fms", fm.GenerationTimeAvgMs)
 
-	parts := []string{wsStatus, msgRate, byteRate, cacheInfo, tokens, latency}
+	parts := []string{wsStatus, msgRate, byteRate, cacheInfo, tokens, genTime}
 	summary := strings.Join(parts, "  │  ")
 
 	return summaryBarStyle.Width(width - 4).Render(summary)
@@ -418,6 +504,16 @@ func renderStreamHealthPanel(fm FeedMetrics, width int) string {
 
 	// Message rate
 	lines = append(lines, renderMetric("Rate", fmt.Sprintf("%.1f msg/s", fm.MessagesPerSecond10s)))
+
+	// Message rate sparkline (throughput: higher = better)
+	if len(fm.MsgRateHistory) > 0 {
+		sparkWidth := width - 12
+		if sparkWidth > 40 {
+			sparkWidth = 40
+		}
+		sparkline := renderSparkline(fm.MsgRateHistory, sparkWidth, false)
+		lines = append(lines, metricLabelStyle.Render("Trend: ")+sparkline)
+	}
 
 	// Byte rate
 	lines = append(lines, renderMetric("Throughput", fmt.Sprintf("%.1f KB/s", fm.BytesPerSecond10s/1024)))
@@ -459,6 +555,16 @@ func renderCacheHealthPanel(fm FeedMetrics, width int) string {
 		memStyle = badValueStyle
 	}
 	lines = append(lines, renderColoredMetric("Context Size", humanizeBytes(fm.CacheApproxBytes), memStyle))
+
+	// Cache memory sparkline (inverted: higher = more memory = warning)
+	if len(fm.CacheBytesHistory) > 0 {
+		sparkWidth := width - 12
+		if sparkWidth > 40 {
+			sparkWidth = 40
+		}
+		sparkline := renderSparkline(fm.CacheBytesHistory, sparkWidth, true)
+		lines = append(lines, metricLabelStyle.Render("Trend: ")+sparkline)
+	}
 
 	// Age stats - how far back context goes
 	lines = append(lines, renderMetric("Context Age", humanizeDuration(fm.OldestItemAgeSeconds)))
@@ -510,18 +616,46 @@ func renderLLMPanel(fm FeedMetrics, width int) string {
 		fmt.Sprintf("%.1f%%", fm.ContextUtilizationPercent), ctxStyle))
 	lines = append(lines, ctxBar)
 
-	// Latency
-	latStyle := goodValueStyle
-	if fm.LLMLatencyAvgMs > 2000 {
-		latStyle = warnValueStyle
+	// Timing metrics - TTFT and Generation Time
+	lines = append(lines, "")
+	lines = append(lines, metricLabelStyle.Render("Timing:"))
+
+	// TTFT (Time to First Token)
+	ttftStyle := goodValueStyle
+	if fm.TTFTMs > 1000 {
+		ttftStyle = warnValueStyle
 	}
-	if fm.LLMLatencyAvgMs > 5000 {
-		latStyle = badValueStyle
+	if fm.TTFTMs > 3000 {
+		ttftStyle = badValueStyle
 	}
-	lines = append(lines, renderColoredMetric("Avg Latency",
-		fmt.Sprintf("%.0fms", fm.LLMLatencyAvgMs), latStyle))
+	lines = append(lines, renderColoredMetric("  TTFT (last)",
+		fmt.Sprintf("%.0fms", fm.TTFTMs), ttftStyle))
+	lines = append(lines, renderMetric("  TTFT (avg)", fmt.Sprintf("%.0fms", fm.TTFTAvgMs)))
+
+	// Total Generation Time
+	genStyle := goodValueStyle
+	if fm.GenerationTimeMs > 5000 {
+		genStyle = warnValueStyle
+	}
+	if fm.GenerationTimeMs > 10000 {
+		genStyle = badValueStyle
+	}
+	lines = append(lines, renderColoredMetric("  Gen Time (last)",
+		fmt.Sprintf("%.0fms", fm.GenerationTimeMs), genStyle))
+	lines = append(lines, renderMetric("  Gen Time (avg)", fmt.Sprintf("%.0fms", fm.GenerationTimeAvgMs)))
+
+	// Generation time sparkline (inverted: higher latency = bad)
+	if len(fm.GenTimeHistory) > 0 {
+		sparkWidth := width - 14
+		if sparkWidth > 35 {
+			sparkWidth = 35
+		}
+		sparkline := renderSparkline(fm.GenTimeHistory, sparkWidth, true)
+		lines = append(lines, metricLabelStyle.Render("  Trend: ")+sparkline)
+	}
 
 	// Errors
+	lines = append(lines, "")
 	errStyle := goodValueStyle
 	if fm.LLMErrorsTotal > 0 {
 		errStyle = badValueStyle

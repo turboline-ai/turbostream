@@ -40,9 +40,18 @@ type FeedMetrics struct {
 	InputTokensLast           int     // Input tokens in last request
 	OutputTokensLast          int     // Output tokens in last request
 	ContextUtilizationPercent float64 // prompt_tokens / model_context_limit * 100
-	LLMLatencyAvgMs           float64
 	LLMErrorsTotal            uint64
-	EventsInContextCurrent    int // Number of feed events currently in LLM context
+	EventsInContextCurrent    int     // Number of feed events currently in LLM context
+	TTFTMs                    float64 // Time to First Token (ms) - last request
+	TTFTAvgMs                 float64 // Time to First Token (ms) - average
+	GenerationTimeMs          float64 // Total generation time (ms) - last request
+	GenerationTimeAvgMs       float64 // Total generation time (ms) - average
+
+	// History for sparkline charts (last N samples)
+	MsgRateHistory     []float64 // Messages per second history
+	CacheBytesHistory  []float64 // Cache bytes history (in MB)
+	GenTimeHistory     []float64 // Generation time history (ms)
+	PayloadSizeHistory []float64 // Payload size history (bytes)
 }
 
 // DashboardMetrics holds metrics for all feeds
@@ -62,6 +71,12 @@ type MetricsCollector struct {
 	llmTokenSamples map[string]*tokenSampler
 	startTimes      map[string]time.Time
 	lastMsgTimes    map[string]time.Time
+
+	// History samplers for sparkline charts
+	msgRateHistory    map[string]*historySampler
+	cacheBytesHistory map[string]*historySampler
+	genTimeHistory    map[string]*historySampler
+	payloadHistory    map[string]*historySampler
 }
 
 // slidingWindow tracks values over time for rate calculations
@@ -251,22 +266,26 @@ type tokenSampler struct {
 	mu                sync.Mutex
 	promptTokens      []int
 	responseTokens    []int
-	latencies         []float64
+	ttfts             []float64 // Time to First Token samples
+	genTimes          []float64 // Total generation time samples
 	eventsPerQuery    []int
 	times             []time.Time
 	maxSize           int
 	duration          time.Duration
-	totalInputTokens  uint64 // Running total of input tokens
-	totalOutputTokens uint64 // Running total of output tokens
-	lastInputTokens   int    // Last request input tokens
-	lastOutputTokens  int    // Last request output tokens
+	totalInputTokens  uint64  // Running total of input tokens
+	totalOutputTokens uint64  // Running total of output tokens
+	lastInputTokens   int     // Last request input tokens
+	lastOutputTokens  int     // Last request output tokens
+	lastTTFT          float64 // Last request TTFT
+	lastGenTime       float64 // Last request generation time
 }
 
 func newTokenSampler(maxSamples int, duration time.Duration) *tokenSampler {
 	return &tokenSampler{
 		promptTokens:   make([]int, 0, maxSamples),
 		responseTokens: make([]int, 0, maxSamples),
-		latencies:      make([]float64, 0, maxSamples),
+		ttfts:          make([]float64, 0, maxSamples),
+		genTimes:       make([]float64, 0, maxSamples),
 		eventsPerQuery: make([]int, 0, maxSamples),
 		times:          make([]time.Time, 0, maxSamples),
 		maxSize:        maxSamples,
@@ -274,16 +293,18 @@ func newTokenSampler(maxSamples int, duration time.Duration) *tokenSampler {
 	}
 }
 
-func (t *tokenSampler) Add(promptTokens, responseTokens int, latencyMs float64, eventsInPrompt int) {
+func (t *tokenSampler) Add(promptTokens, responseTokens int, ttftMs, genTimeMs float64, eventsInPrompt int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	now := time.Now()
 
-	// Track totals
+	// Track totals and last values
 	t.totalInputTokens += uint64(promptTokens)
 	t.totalOutputTokens += uint64(responseTokens)
 	t.lastInputTokens = promptTokens
 	t.lastOutputTokens = responseTokens
+	t.lastTTFT = ttftMs
+	t.lastGenTime = genTimeMs
 
 	// Prune old samples
 	cutoff := now.Add(-t.duration)
@@ -297,19 +318,21 @@ func (t *tokenSampler) Add(promptTokens, responseTokens int, latencyMs float64, 
 	if idx > 0 {
 		t.promptTokens = t.promptTokens[idx:]
 		t.responseTokens = t.responseTokens[idx:]
-		t.latencies = t.latencies[idx:]
+		t.ttfts = t.ttfts[idx:]
+		t.genTimes = t.genTimes[idx:]
 		t.eventsPerQuery = t.eventsPerQuery[idx:]
 		t.times = t.times[idx:]
 	}
 
 	t.promptTokens = append(t.promptTokens, promptTokens)
 	t.responseTokens = append(t.responseTokens, responseTokens)
-	t.latencies = append(t.latencies, latencyMs)
+	t.ttfts = append(t.ttfts, ttftMs)
+	t.genTimes = append(t.genTimes, genTimeMs)
 	t.eventsPerQuery = append(t.eventsPerQuery, eventsInPrompt)
 	t.times = append(t.times, now)
 }
 
-func (t *tokenSampler) Stats() (inputTotal, outputTotal uint64, inputLast, outputLast int, latencyAvg float64, eventsMax int) {
+func (t *tokenSampler) Stats() (inputTotal, outputTotal uint64, inputLast, outputLast int, ttftLast, ttftAvg, genTimeLast, genTimeAvg float64, eventsMax int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -317,17 +340,28 @@ func (t *tokenSampler) Stats() (inputTotal, outputTotal uint64, inputLast, outpu
 	outputTotal = t.totalOutputTokens
 	inputLast = t.lastInputTokens
 	outputLast = t.lastOutputTokens
+	ttftLast = t.lastTTFT
+	genTimeLast = t.lastGenTime
 
-	if len(t.latencies) == 0 {
+	if len(t.ttfts) == 0 {
 		return
 	}
 
-	// Latencies
-	var latSum float64
-	for _, v := range t.latencies {
-		latSum += v
+	// TTFT average
+	var ttftSum float64
+	for _, v := range t.ttfts {
+		ttftSum += v
 	}
-	latencyAvg = latSum / float64(len(t.latencies))
+	ttftAvg = ttftSum / float64(len(t.ttfts))
+
+	// Generation time average
+	if len(t.genTimes) > 0 {
+		var genSum float64
+		for _, v := range t.genTimes {
+			genSum += v
+		}
+		genTimeAvg = genSum / float64(len(t.genTimes))
+	}
 
 	// Events per prompt max
 	for _, v := range t.eventsPerQuery {
@@ -339,17 +373,54 @@ func (t *tokenSampler) Stats() (inputTotal, outputTotal uint64, inputLast, outpu
 	return
 }
 
+// historySampler keeps a fixed-size ring buffer of recent values for sparklines
+type historySampler struct {
+	mu      sync.Mutex
+	samples []float64
+	maxSize int
+}
+
+func newHistorySampler(maxSamples int) *historySampler {
+	return &historySampler{
+		samples: make([]float64, 0, maxSamples),
+		maxSize: maxSamples,
+	}
+}
+
+func (h *historySampler) Add(value float64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.samples = append(h.samples, value)
+	if len(h.samples) > h.maxSize {
+		h.samples = h.samples[1:]
+	}
+}
+
+func (h *historySampler) Values() []float64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	result := make([]float64, len(h.samples))
+	copy(result, h.samples)
+	return result
+}
+
 // NewMetricsCollector creates a new metrics collector
 func NewMetricsCollector() *MetricsCollector {
 	return &MetricsCollector{
-		feedMetrics:     make(map[string]*FeedMetrics),
-		messageWindows:  make(map[string]*slidingWindow),
-		byteWindows:     make(map[string]*slidingWindow),
-		payloadSamples:  make(map[string]*payloadSampler),
-		llmLatencies:    make(map[string]*slidingWindow),
-		llmTokenSamples: make(map[string]*tokenSampler),
-		startTimes:      make(map[string]time.Time),
-		lastMsgTimes:    make(map[string]time.Time),
+		feedMetrics:       make(map[string]*FeedMetrics),
+		messageWindows:    make(map[string]*slidingWindow),
+		byteWindows:       make(map[string]*slidingWindow),
+		payloadSamples:    make(map[string]*payloadSampler),
+		llmLatencies:      make(map[string]*slidingWindow),
+		llmTokenSamples:   make(map[string]*tokenSampler),
+		startTimes:        make(map[string]time.Time),
+		lastMsgTimes:      make(map[string]time.Time),
+		msgRateHistory:    make(map[string]*historySampler),
+		cacheBytesHistory: make(map[string]*historySampler),
+		genTimeHistory:    make(map[string]*historySampler),
+		payloadHistory:    make(map[string]*historySampler),
 	}
 }
 
@@ -370,6 +441,12 @@ func (mc *MetricsCollector) InitFeed(feedID, name string) {
 		mc.llmLatencies[feedID] = newSlidingWindow(5 * time.Minute)
 		mc.llmTokenSamples[feedID] = newTokenSampler(100, 5*time.Minute)
 		mc.startTimes[feedID] = time.Now()
+
+		// History samplers for sparklines (keep last 30 samples)
+		mc.msgRateHistory[feedID] = newHistorySampler(30)
+		mc.cacheBytesHistory[feedID] = newHistorySampler(30)
+		mc.genTimeHistory[feedID] = newHistorySampler(30)
+		mc.payloadHistory[feedID] = newHistorySampler(30)
 	}
 }
 
@@ -438,8 +515,8 @@ func (mc *MetricsCollector) RecordCacheStats(feedID string, itemCount int, appro
 	fm.OldestItemAgeSeconds = oldestAge
 }
 
-// RecordLLMRequest records an LLM request with token counts
-func (mc *MetricsCollector) RecordLLMRequest(feedID string, inputTokens, outputTokens int, latencyMs float64, eventsInContext int, isError bool) {
+// RecordLLMRequest records an LLM request with token counts and timing
+func (mc *MetricsCollector) RecordLLMRequest(feedID string, inputTokens, outputTokens int, ttftMs, genTimeMs float64, eventsInContext int, isError bool) {
 	mc.mu.Lock()
 	fm, exists := mc.feedMetrics[feedID]
 	if !exists {
@@ -456,7 +533,7 @@ func (mc *MetricsCollector) RecordLLMRequest(feedID string, inputTokens, outputT
 	sampler := mc.llmTokenSamples[feedID]
 	mc.mu.Unlock()
 
-	sampler.Add(inputTokens, outputTokens, latencyMs, eventsInContext)
+	sampler.Add(inputTokens, outputTokens, ttftMs, genTimeMs, eventsInContext)
 }
 
 // GetMetrics returns computed metrics for all feeds
@@ -488,12 +565,15 @@ func (mc *MetricsCollector) GetMetrics() DashboardMetrics {
 
 		// Compute LLM stats
 		if sampler, ok := mc.llmTokenSamples[feedID]; ok {
-			inputTotal, outputTotal, inputLast, outputLast, latAvg, eventsMax := sampler.Stats()
+			inputTotal, outputTotal, inputLast, outputLast, ttftLast, ttftAvg, genTimeLast, genTimeAvg, eventsMax := sampler.Stats()
 			metrics.InputTokensTotal = inputTotal
 			metrics.OutputTokensTotal = outputTotal
 			metrics.InputTokensLast = inputLast
 			metrics.OutputTokensLast = outputLast
-			metrics.LLMLatencyAvgMs = latAvg
+			metrics.TTFTMs = ttftLast
+			metrics.TTFTAvgMs = ttftAvg
+			metrics.GenerationTimeMs = genTimeLast
+			metrics.GenerationTimeAvgMs = genTimeAvg
 
 			// Context utilization (assume 128K context window for GPT-4o)
 			const modelContextLimit = 128000
@@ -509,6 +589,20 @@ func (mc *MetricsCollector) GetMetrics() DashboardMetrics {
 		}
 		if lastMsg, ok := mc.lastMsgTimes[feedID]; ok {
 			metrics.LastMessageAgeSeconds = now.Sub(lastMsg).Seconds()
+		}
+
+		// Sample history for sparklines (called on each dashboard refresh ~1s)
+		if sampler, ok := mc.msgRateHistory[feedID]; ok {
+			sampler.Add(metrics.MessagesPerSecond10s)
+			metrics.MsgRateHistory = sampler.Values()
+		}
+		if sampler, ok := mc.cacheBytesHistory[feedID]; ok {
+			sampler.Add(float64(metrics.CacheApproxBytes))
+			metrics.CacheBytesHistory = sampler.Values()
+		}
+		if sampler, ok := mc.genTimeHistory[feedID]; ok {
+			sampler.Add(metrics.GenerationTimeMs)
+			metrics.GenTimeHistory = sampler.Values()
 		}
 
 		feeds = append(feeds, metrics)

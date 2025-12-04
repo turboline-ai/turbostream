@@ -1,4 +1,4 @@
-module github.com/manasmudbari/realtime-crypto-analyzer/go-backend
+module github.com/turboline-ai/turbostream/go-backend
 
 go 1.24.4
 

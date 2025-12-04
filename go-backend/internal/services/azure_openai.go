@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/config"
+	"github.com/turboline-ai/turbostream/go-backend/internal/config"
 )
 
 // AzureOpenAI provides a lightweight chat completion client for Azure OpenAI.

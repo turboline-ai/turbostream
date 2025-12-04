@@ -17,8 +17,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/config"
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/models"
+	"github.com/turboline-ai/turbostream/go-backend/internal/config"
+	"github.com/turboline-ai/turbostream/go-backend/internal/models"
 )
 
 type AuthService struct {

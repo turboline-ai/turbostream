@@ -1,4 +1,4 @@
-module github.com/manasmudbari/realtime-crypto-analyzer/go-tui
+module github.com/turboline-ai/turbostream/go-tui
 
 go 1.24.0
 

@@ -16,8 +16,8 @@ import (
 	coderws "nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
 
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/models"
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/services"
+	"github.com/turboline-ai/turbostream/go-backend/internal/models"
+	"github.com/turboline-ai/turbostream/go-backend/internal/services"
 )
 
 // WSMessage represents the JSON structure shared between client and server.

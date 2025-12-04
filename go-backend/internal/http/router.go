@@ -7,10 +7,10 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/config"
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/http/handlers"
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/services"
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/socket"
+	"github.com/turboline-ai/turbostream/go-backend/internal/config"
+	"github.com/turboline-ai/turbostream/go-backend/internal/http/handlers"
+	"github.com/turboline-ai/turbostream/go-backend/internal/services"
+	"github.com/turboline-ai/turbostream/go-backend/internal/socket"
 )
 
 type RouterDeps struct {

@@ -12,9 +12,9 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"net/url"
 
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/models"
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/services"
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/socket"
+	"github.com/turboline-ai/turbostream/go-backend/internal/models"
+	"github.com/turboline-ai/turbostream/go-backend/internal/services"
+	"github.com/turboline-ai/turbostream/go-backend/internal/socket"
 )
 
 type MarketplaceHandler struct {

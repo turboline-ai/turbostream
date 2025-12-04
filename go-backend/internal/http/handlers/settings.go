@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/services"
+	"github.com/turboline-ai/turbostream/go-backend/internal/services"
 )
 
 type SettingsHandler struct {

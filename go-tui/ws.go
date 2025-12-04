@@ -8,7 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-tui/pkg/api"
+	"github.com/turboline-ai/turbostream/go-tui/pkg/api"
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
 )

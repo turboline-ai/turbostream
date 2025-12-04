@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/services"
+	"github.com/turboline-ai/turbostream/go-backend/internal/services"
 )
 
 // LLMHandler handles LLM-related HTTP requests

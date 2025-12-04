@@ -12,7 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-tui/pkg/api"
+	"github.com/turboline-ai/turbostream/go-tui/pkg/api"
 )
 
 // Color palette - Cyan theme with Magenta tabs
@@ -291,6 +291,8 @@ type model struct {
 	aiLastQuery   time.Time // last query time
 	aiFocused     bool      // whether AI panel is focused for editing
 	aiRequestID   string    // track current request
+	aiStartTime   time.Time // when the current request started
+	aiFirstToken  time.Time // when first token was received (for TTFT)
 
 	// Observability dashboard
 	metricsCollector      *MetricsCollector
@@ -641,7 +643,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.aiResponse = "Error: " + msg.Err.Error()
 			// Record LLM error in metrics
 			if m.selectedFeed != nil {
-				m.metricsCollector.RecordLLMRequest(m.selectedFeed.ID, 0, 0, float64(msg.Duration), 0, true)
+				m.metricsCollector.RecordLLMRequest(m.selectedFeed.ID, 0, 0, 0, 0, 0, true)
 			}
 			return m, m.nextWSListen()
 		}
@@ -653,7 +655,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				promptTokens := len(m.aiPrompt.Value()) / 4
 				responseTokens := len(msg.Answer) / 4
 				eventsInPrompt := len(m.feedEntries[m.selectedFeed.ID])
-				m.metricsCollector.RecordLLMRequest(m.selectedFeed.ID, promptTokens, responseTokens, float64(msg.Duration), eventsInPrompt, false)
+
+				// Calculate TTFT and generation time
+				var ttftMs, genTimeMs float64
+				if !m.aiFirstToken.IsZero() && !m.aiStartTime.IsZero() {
+					ttftMs = float64(m.aiFirstToken.Sub(m.aiStartTime).Milliseconds())
+				}
+				if !m.aiStartTime.IsZero() {
+					genTimeMs = float64(time.Since(m.aiStartTime).Milliseconds())
+				}
+
+				m.metricsCollector.RecordLLMRequest(m.selectedFeed.ID, promptTokens, responseTokens, ttftMs, genTimeMs, eventsInPrompt, false)
 			}
 		}
 		return m, m.nextWSListen()
@@ -661,6 +673,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case aiTokenMsg:
 		// Streaming token - append to response
 		if msg.RequestID == m.aiRequestID {
+			// Track first token time for TTFT
+			if m.aiFirstToken.IsZero() && len(msg.Token) > 0 {
+				m.aiFirstToken = time.Now()
+			}
 			m.aiResponse += msg.Token
 			m.aiLoading = true // Keep showing loading while streaming
 		}
@@ -674,6 +690,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.aiLastQuery = time.Now()
 				m.aiLoading = true
 				m.aiRequestID = fmt.Sprintf("req-%d", time.Now().UnixNano())
+				m.aiStartTime = time.Now()
+				m.aiFirstToken = time.Time{} // Reset first token time
 				m.aiResponse = ""
 				return m, tea.Batch(m.sendAIQuery(), m.nextWSListen(), tea.Tick(time.Second, func(t time.Time) tea.Msg { return aiTickMsg{} }))
 			}
@@ -765,6 +783,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.selectedFeed = &feed
 					m.aiLoading = true
 					m.aiRequestID = fmt.Sprintf("req-%d", time.Now().UnixNano())
+					m.aiStartTime = time.Now()
+					m.aiFirstToken = time.Time{} // Reset first token time
 					m.aiResponse = ""
 					return m, tea.Batch(m.sendAIQuery(), m.nextWSListen())
 				}
@@ -858,6 +878,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.selectedFeed = &feed
 					m.aiLoading = true
 					m.aiRequestID = fmt.Sprintf("req-%d", time.Now().UnixNano())
+					m.aiStartTime = time.Now()
+					m.aiFirstToken = time.Time{} // Reset first token time
 					m.aiResponse = ""
 					return m, tea.Batch(m.sendAIQuery(), m.nextWSListen())
 				} else {

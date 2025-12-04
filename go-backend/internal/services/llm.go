@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/config"
+	"github.com/turboline-ai/turbostream/go-backend/internal/config"
 )
 
 // FeedContext represents accumulated feed data for LLM context
