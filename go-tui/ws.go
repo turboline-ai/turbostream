@@ -8,7 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-tui/pkg/api"
+	"github.com/turboline-ai/turbostream/go-tui/pkg/api"
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
 )
@@ -195,7 +195,7 @@ func (c *wsClient) Unsubscribe(feedID string) error {
 // SendLLMQuery sends a query to the LLM service via WebSocket
 func (c *wsClient) SendLLMQuery(feedID, question, systemPrompt, requestID string) error {
 	return c.send(map[string]interface{}{
-		"type": "llm-query",
+		"type": "llm-query-stream",
 		"payload": map[string]string{
 			"feedId":       feedID,
 			"question":     question,

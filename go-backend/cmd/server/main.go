@@ -10,11 +10,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/config"
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/db"
-	transport "github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/http"
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/services"
-	"github.com/manasmudbari/realtime-crypto-analyzer/go-backend/internal/socket"
+	"github.com/turboline-ai/turbostream/go-backend/internal/config"
+	"github.com/turboline-ai/turbostream/go-backend/internal/db"
+	transport "github.com/turboline-ai/turbostream/go-backend/internal/http"
+	"github.com/turboline-ai/turbostream/go-backend/internal/services"
+	"github.com/turboline-ai/turbostream/go-backend/internal/socket"
 )
 
 func main() {
@@ -51,7 +51,7 @@ func main() {
 		log.Printf("⚠️  failed to seed settings categories: %v", err)
 	}
 
-	socketManager := socket.NewManager(azureService, marketplaceService)
+	socketManager := socket.NewManager(authService, azureService, marketplaceService)
 	socketManager.SetLLMService(llmService)
 
 	gin.SetMode(gin.ReleaseMode)

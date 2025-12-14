@@ -60,7 +60,7 @@ func Load() Config {
 
 	port := parseInt(getEnv("BACKEND_PORT", "7210"))
 	timeoutMS := parseInt(getEnv("REQUEST_TIMEOUT_MS", "15000"))
-	tokenQuota := parseInt64(getEnv("TOKEN_QUOTA_PER_MONTH", "200000"))
+	tokenQuota := parseInt64(getEnv("TOKEN_QUOTA_PER_MONTH", "1000000"))
 	llmMaxTokens := parseInt(getEnv("LLM_MAX_TOKENS", "1024"))
 	llmContextLimit := parseInt(getEnv("LLM_CONTEXT_LIMIT", "50"))
 	llmTemp := parseFloat(getEnv("LLM_TEMPERATURE", "0.7"))
