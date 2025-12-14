@@ -236,11 +236,49 @@ func renderColoredMetric(label string, value string, style lipgloss.Style) strin
 	return metricLabelStyle.Render(label+": ") + style.Render(value)
 }
 
-// renderPanel renders a titled panel with content
+// renderPanel renders a titled panel with title embedded in the top border
 func renderPanel(title string, content string, width int) string {
-	titleRendered := panelTitleStyle.Render(title)
-	panel := panelBorderStyle.Width(width - 2).Render(content)
-	return lipgloss.JoinVertical(lipgloss.Left, titleRendered, panel)
+	// Build custom top border with embedded title
+	// Format: ╭─ Title ─────────────╮
+	titleText := " " + title + " "
+	border := lipgloss.RoundedBorder()
+
+	// Calculate remaining dashes needed
+	// width - 2 (corners) - len(titleText) - 1 (initial dash)
+	remainingWidth := width - 3 - len(titleText)
+	if remainingWidth < 0 {
+		remainingWidth = 0
+	}
+
+	// Render content with side and bottom borders only
+	contentLines := strings.Split(content, "\n")
+	var result strings.Builder
+
+	// Add styled top border with title
+	result.WriteString(lipgloss.NewStyle().Foreground(darkCyanColor).Render(border.TopLeft + border.Top))
+	result.WriteString(lipgloss.NewStyle().Bold(true).Foreground(brightCyanColor).Render(titleText))
+	result.WriteString(lipgloss.NewStyle().Foreground(darkCyanColor).Render(strings.Repeat(border.Top, remainingWidth) + border.TopRight))
+	result.WriteString("\n")
+
+	// Add content lines with side borders
+	innerWidth := width - 4 // account for borders and padding
+	for _, line := range contentLines {
+		// Pad line to fill width
+		paddedLine := line
+		lineLen := lipgloss.Width(line)
+		if lineLen < innerWidth {
+			paddedLine = line + strings.Repeat(" ", innerWidth-lineLen)
+		}
+		result.WriteString(lipgloss.NewStyle().Foreground(darkCyanColor).Render(border.Left))
+		result.WriteString(" " + paddedLine + " ")
+		result.WriteString(lipgloss.NewStyle().Foreground(darkCyanColor).Render(border.Right))
+		result.WriteString("\n")
+	}
+
+	// Add bottom border
+	result.WriteString(lipgloss.NewStyle().Foreground(darkCyanColor).Render(border.BottomLeft + strings.Repeat(border.Bottom, width-2) + border.BottomRight))
+
+	return result.String()
 }
 
 // renderDashboardView renders the complete observability dashboard for a feed
@@ -260,8 +298,9 @@ func renderDashboardView(dm DashboardMetrics, termWidth, termHeight int) string 
 	sidebarWidth := 22
 	contentWidth := termWidth - sidebarWidth - 3 // 3 for spacing
 
+	// Account for top bar (1), tab bar (~3), footer (~2), and dashboard chrome (~4)
 	// Render feed sidebar (vertical list)
-	sidebar := renderFeedSidebar(dm, sidebarWidth, termHeight-6)
+	sidebar := renderFeedSidebar(dm, sidebarWidth, termHeight-10)
 
 	// Build main content area
 	var contentBuilder strings.Builder
@@ -272,7 +311,7 @@ func renderDashboardView(dm DashboardMetrics, termWidth, termHeight int) string 
 	if !fm.WSConnected {
 		statusStyle = badValueStyle
 	}
-	title := fmt.Sprintf("📊 %s  %s", fm.Name, statusStyle.Render(statusIcon))
+	title := fmt.Sprintf("%s  %s", fm.Name, statusStyle.Render(statusIcon))
 	contentBuilder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render(title))
 	contentBuilder.WriteString("\n")
 
@@ -356,16 +395,12 @@ var (
 	feedItemDisconnectedIcon = lipgloss.NewStyle().Foreground(redColor).Render("●")
 )
 
-// renderFeedSidebar renders the vertical feed list sidebar
+// renderFeedSidebar renders the vertical feed list sidebar with title in border
 func renderFeedSidebar(dm DashboardMetrics, width, maxHeight int) string {
 	var lines []string
 
-	// Title
-	lines = append(lines, sidebarTitleStyle.Render("📡 Feeds"))
-	lines = append(lines, "")
-
-	// Calculate how many feeds we can show
-	visibleFeeds := maxHeight - 4 // Account for title, borders, etc.
+	// Calculate how many feeds we can show (reduced for title in border)
+	visibleFeeds := maxHeight - 6 // Account for borders, count, etc.
 	if visibleFeeds < 3 {
 		visibleFeeds = 3
 	}
@@ -437,7 +472,7 @@ func renderFeedSidebar(dm DashboardMetrics, width, maxHeight int) string {
 	lines = append(lines, lipgloss.NewStyle().Foreground(grayColor).Align(lipgloss.Center).Width(width-4).Render(countText))
 
 	content := strings.Join(lines, "\n")
-	return sidebarStyle.Width(width - 2).Render(content)
+	return renderPanel("Feeds", content, width)
 }
 
 // renderFeedSelector is kept for backwards compatibility but not used in new layout
@@ -455,7 +490,7 @@ func renderFeedSelector(dm DashboardMetrics, width int) string {
 		statusStyle = badValueStyle
 	}
 
-	title := fmt.Sprintf("📊 Observability Dashboard  %s", statusStyle.Render(statusIcon))
+	title := fmt.Sprintf("Observability Dashboard  %s", statusStyle.Render(statusIcon))
 	return lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render(title)
 }
 
@@ -536,7 +571,7 @@ func renderStreamHealthPanel(fm FeedMetrics, width int) string {
 	lines = append(lines, renderMetric("Reconnects", fmt.Sprintf("%d", fm.ReconnectsTotal)))
 	lines = append(lines, renderMetric("Uptime", humanizeDuration(fm.CurrentUptimeSeconds)))
 
-	return renderPanel("📡 Stream / WebSocket", strings.Join(lines, "\n"), width)
+	return renderPanel("Stream / WebSocket", strings.Join(lines, "\n"), width)
 }
 
 // renderCacheHealthPanel renders the LLM context panel
@@ -581,7 +616,7 @@ func renderPayloadPanel(fm FeedMetrics, width int) string {
 	lines = append(lines, renderMetric("Avg Payload", humanizeBytesInt(int(fm.PayloadSizeAvgBytes))))
 	lines = append(lines, renderMetric("Max Payload", humanizeBytesInt(fm.PayloadSizeMaxBytes)))
 
-	return renderPanel("📊 Payload Size", strings.Join(lines, "\n"), width)
+	return renderPanel("Payload Size", strings.Join(lines, "\n"), width)
 }
 
 // renderLLMPanel renders the LLM usage panel
@@ -662,7 +697,7 @@ func renderLLMPanel(fm FeedMetrics, width int) string {
 	}
 	lines = append(lines, renderColoredMetric("Errors", fmt.Sprintf("%d", fm.LLMErrorsTotal), errStyle))
 
-	return renderPanel("🤖 LLM / Tokens", strings.Join(lines, "\n"), width)
+	return renderPanel("LLM / Tokens", strings.Join(lines, "\n"), width)
 }
 
 // renderContextBar renders a visual bar for context utilization

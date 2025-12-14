@@ -153,6 +153,22 @@ func (c *Client) ListFeeds(ctx context.Context) ([]Feed, error) {
 	return resp.Data, nil
 }
 
+func (c *Client) MyFeeds(ctx context.Context) ([]Feed, error) {
+	var resp struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+		Data    []Feed `json:"data"`
+		Count   int    `json:"count"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/api/marketplace/my-feeds", nil, &resp); err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, errors.New(resp.Message)
+	}
+	return resp.Data, nil
+}
+
 func (c *Client) Feed(ctx context.Context, id string) (*Feed, error) {
 	var resp struct {
 		Success bool   `json:"success"`

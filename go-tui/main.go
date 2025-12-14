@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -104,6 +105,129 @@ var (
 			Width(100)
 )
 
+// truncateStyledText truncates a string (potentially with ANSI codes) to a maximum visual width
+func truncateStyledText(s string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	// Strip ANSI codes and get plain text
+	plainText := lipgloss.NewStyle().Render(s)
+	visWidth := lipgloss.Width(plainText)
+
+	if visWidth <= maxWidth {
+		return s
+	}
+
+	// Need to truncate - strip all styles and truncate plain text
+	// This is a simplified approach that works for most cases
+	runes := []rune(s)
+	result := ""
+	currentWidth := 0
+
+	for _, r := range runes {
+		// Skip ANSI escape sequences
+		if r == '\x1b' {
+			continue
+		}
+		charWidth := 1
+		if currentWidth+charWidth > maxWidth-3 { // -3 for "..."
+			return result + "..."
+		}
+		result += string(r)
+		currentWidth += charWidth
+	}
+	return result
+}
+
+// renderBoxWithTitle renders a box with the title embedded in the top border
+func renderBoxWithTitle(title, content string, width, height int, borderColor lipgloss.Color, titleColor lipgloss.Color) string {
+	border := lipgloss.RoundedBorder()
+	titleText := " " + title + " "
+
+	// Calculate remaining dashes for top border
+	remainingWidth := width - 3 - len(titleText)
+	if remainingWidth < 0 {
+		remainingWidth = 0
+	}
+
+	// Build the box
+	var result strings.Builder
+
+	// Top border with title
+	result.WriteString(lipgloss.NewStyle().Foreground(borderColor).Render(border.TopLeft + border.Top))
+	result.WriteString(lipgloss.NewStyle().Bold(true).Foreground(titleColor).Render(titleText))
+	result.WriteString(lipgloss.NewStyle().Foreground(borderColor).Render(strings.Repeat(border.Top, remainingWidth) + border.TopRight))
+	result.WriteString("\n")
+
+	// Split content into lines
+	contentLines := strings.Split(content, "\n")
+	innerWidth := width - 4 // borders + padding
+
+	// Calculate how many content lines we need
+	contentHeight := height - 2 // subtract top and bottom borders
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	// Render content lines (pad or truncate to fit height)
+	for i := 0; i < contentHeight; i++ {
+		line := ""
+		if i < len(contentLines) {
+			line = contentLines[i]
+		}
+
+		// Get visual width of the line
+		lineLen := lipgloss.Width(line)
+
+		// Truncate if too long - use simple rune-based truncation
+		if lineLen > innerWidth {
+			// Strip ANSI and truncate
+			runes := []rune(line)
+			truncated := ""
+			currentWidth := 0
+			inEscape := false
+
+			for _, r := range runes {
+				if r == '\x1b' {
+					inEscape = true
+					truncated += string(r)
+					continue
+				}
+				if inEscape {
+					truncated += string(r)
+					if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+						inEscape = false
+					}
+					continue
+				}
+				if currentWidth >= innerWidth-3 {
+					truncated += "..."
+					break
+				}
+				truncated += string(r)
+				currentWidth++
+			}
+			line = truncated
+			lineLen = lipgloss.Width(line)
+		}
+
+		// Pad to fill width
+		if lineLen < innerWidth {
+			line = line + strings.Repeat(" ", innerWidth-lineLen)
+		}
+
+		result.WriteString(lipgloss.NewStyle().Foreground(borderColor).Render(border.Left))
+		result.WriteString(" " + line + " ")
+		result.WriteString(lipgloss.NewStyle().Foreground(borderColor).Render(border.Right))
+		result.WriteString("\n")
+	}
+
+	// Bottom border
+	result.WriteString(lipgloss.NewStyle().Foreground(borderColor).Render(border.BottomLeft + strings.Repeat(border.Bottom, width-2) + border.BottomRight))
+
+	return result.String()
+}
+
 // ASCII Logo with gradient colors (Cyan to Magenta)
 var logoLines = []string{
 	"████████╗██╗   ██╗██████╗ ██████╗  ██████╗ ███████╗████████╗██████╗ ███████╗ █████╗ ███╗   ███╗",
@@ -145,6 +269,7 @@ const (
 	screenFeedDetail
 	screenRegisterFeed
 	screenFeeds
+	screenHelp
 )
 
 // Tab indices for main navigation
@@ -152,6 +277,7 @@ const (
 	tabDashboard = iota
 	tabRegisterFeed
 	tabMyFeeds
+	tabHelp
 	tabCount
 )
 
@@ -162,6 +288,14 @@ type feedEntry struct {
 	Event    string
 	Data     string
 	Time     time.Time
+}
+
+// aiOutputEntry represents a single AI response in the output history
+type aiOutputEntry struct {
+	Response  string
+	Timestamp time.Time
+	Provider  string
+	Duration  int64
 }
 
 // Messages used by Bubble Tea update loop.
@@ -282,22 +416,29 @@ type model struct {
 	feedFormFocus    int
 
 	// AI Analysis panel
-	aiPrompt      textinput.Model
-	aiAutoMode    bool      // true = auto query at interval, false = manual
-	aiInterval    int       // seconds between auto queries (5, 10, 30, 60)
-	aiIntervalIdx int       // index into interval options
-	aiResponse    string    // latest AI response
-	aiLoading     bool      // whether AI query is in progress
-	aiLastQuery   time.Time // last query time
-	aiFocused     bool      // whether AI panel is focused for editing
-	aiRequestID   string    // track current request
-	aiStartTime   time.Time // when the current request started
-	aiFirstToken  time.Time // when first token was received (for TTFT)
+	aiPrompt        textinput.Model
+	aiAutoMode      bool            // true = auto query at interval, false = manual
+	aiInterval      int             // seconds between auto queries (5, 10, 30, 60)
+	aiIntervalIdx   int             // index into interval options
+	aiResponse      string          // current AI response (for streaming)
+	aiOutputHistory []aiOutputEntry // history of AI outputs (last 10)
+	aiLoading       bool            // whether AI query is in progress
+	aiLastQuery     time.Time       // last query time
+	aiFocused       bool            // whether AI panel is focused for editing
+	aiRequestID     string          // track current request
+	aiStartTime     time.Time       // when the current request started
+	aiFirstToken    time.Time       // when first token was received (for TTFT)
+	aiViewport      viewport.Model  // scrollable viewport for AI output
+	aiViewportReady bool            // whether viewport is initialized
 
 	// Observability dashboard
 	metricsCollector      *MetricsCollector
 	dashboardMetrics      DashboardMetrics
 	dashboardSelectedFeed int // Selected feed index in dashboard
+
+	// Help section
+	helpPage      int // Current help page index
+	helpScrollPos int // Scroll position within current page
 
 	// Terminal dimensions
 	termWidth  int
@@ -378,6 +519,7 @@ func newModel(client *api.Client, backendURL, wsURL, token, presetEmail string) 
 	aiPrompt.Placeholder = "Ask about the streaming data..."
 	aiPrompt.CharLimit = 500
 	aiPrompt.Width = 50
+	aiPrompt.Prompt = "" // Remove default > prefix since we add our own
 
 	return model{
 		backendURL:       backendURL,
@@ -641,6 +783,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.aiLoading = false
 		if msg.Err != nil {
 			m.aiResponse = "Error: " + msg.Err.Error()
+			// Add error to history
+			m.aiOutputHistory = append(m.aiOutputHistory, aiOutputEntry{
+				Response:  "Error: " + msg.Err.Error(),
+				Timestamp: time.Now(),
+				Provider:  "error",
+				Duration:  0,
+			})
+			// Keep only last 10 outputs
+			if len(m.aiOutputHistory) > 10 {
+				m.aiOutputHistory = m.aiOutputHistory[len(m.aiOutputHistory)-10:]
+			}
 			// Record LLM error in metrics
 			if m.selectedFeed != nil {
 				m.metricsCollector.RecordLLMRequest(m.selectedFeed.ID, 0, 0, 0, 0, 0, true)
@@ -650,6 +803,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.RequestID == m.aiRequestID {
 			m.aiResponse = msg.Answer
 			m.statusMessage = fmt.Sprintf("AI response received (%s, %dms)", msg.Provider, msg.Duration)
+
+			// Add to output history
+			m.aiOutputHistory = append(m.aiOutputHistory, aiOutputEntry{
+				Response:  msg.Answer,
+				Timestamp: time.Now(),
+				Provider:  msg.Provider,
+				Duration:  msg.Duration,
+			})
+			// Keep only last 10 outputs
+			if len(m.aiOutputHistory) > 10 {
+				m.aiOutputHistory = m.aiOutputHistory[len(m.aiOutputHistory)-10:]
+			}
+
 			// Record LLM metrics (estimate tokens: 1 token ≈ 4 chars)
 			if m.selectedFeed != nil {
 				promptTokens := len(m.aiPrompt.Value()) / 4
@@ -734,12 +900,22 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch m.activeTab {
 		case tabDashboard:
 			m.screen = screenDashboard
+			m.aiPrompt.Blur()
+			m.aiFocused = false
 		case tabRegisterFeed:
 			m.screen = screenRegisterFeed
 			m.feedName.Focus()
 			m.feedFormFocus = 0
+			m.aiPrompt.Blur()
+			m.aiFocused = false
 		case tabMyFeeds:
 			m.screen = screenFeeds
+			m.aiPrompt.Blur()
+			m.aiFocused = false
+		case tabHelp:
+			m.screen = screenHelp
+			m.aiPrompt.Blur()
+			m.aiFocused = false
 		}
 		return m, nil
 	case "shift+tab":
@@ -751,12 +927,22 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch m.activeTab {
 		case tabDashboard:
 			m.screen = screenDashboard
+			m.aiPrompt.Blur()
+			m.aiFocused = false
 		case tabRegisterFeed:
 			m.screen = screenRegisterFeed
 			m.feedName.Focus()
 			m.feedFormFocus = 0
+			m.aiPrompt.Blur()
+			m.aiFocused = false
 		case tabMyFeeds:
 			m.screen = screenFeeds
+			m.aiPrompt.Blur()
+			m.aiFocused = false
+		case tabHelp:
+			m.screen = screenHelp
+			m.aiPrompt.Blur()
+			m.aiFocused = false
 		}
 		return m, nil
 	}
@@ -823,6 +1009,41 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Help screen key handling (page navigation)
+	if m.screen == screenHelp {
+		switch msg.String() {
+		case "left", "h":
+			// Previous help page
+			if m.helpPage > 0 {
+				m.helpPage--
+				m.helpScrollPos = 0
+			}
+			return m, nil
+		case "right", "l":
+			// Next help page
+			m.helpPage++
+			// Bound check happens in viewHelp
+			m.helpScrollPos = 0
+			return m, nil
+		case "up", "k":
+			// Scroll up within page
+			if m.helpScrollPos > 0 {
+				m.helpScrollPos--
+			}
+			return m, nil
+		case "down", "j":
+			// Scroll down within page
+			m.helpScrollPos++
+			return m, nil
+		case "1", "2", "3", "4", "5":
+			// Jump to specific page
+			pageNum := int(msg.String()[0] - '1')
+			m.helpPage = pageNum
+			m.helpScrollPos = 0
+			return m, nil
+		}
+	}
+
 	switch msg.String() {
 	case "up":
 		// Only for feed list navigation, not dashboard
@@ -869,27 +1090,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.errorMessage = "You can only delete your own feeds"
 			}
 		}
-	case "a":
-		// Send AI query (only on My Feeds screen with a subscribed feed)
-		if m.screen == screenFeeds && !m.aiFocused {
-			if len(m.feeds) > 0 && m.selectedIdx < len(m.feeds) {
-				feed := m.feeds[m.selectedIdx]
-				if m.isSubscribed(feed.ID) {
-					m.selectedFeed = &feed
-					m.aiLoading = true
-					m.aiRequestID = fmt.Sprintf("req-%d", time.Now().UnixNano())
-					m.aiStartTime = time.Now()
-					m.aiFirstToken = time.Time{} // Reset first token time
-					m.aiResponse = ""
-					return m, tea.Batch(m.sendAIQuery(), m.nextWSListen())
-				} else {
-					m.statusMessage = "Subscribe to feed first to use AI analysis"
-				}
-			}
-		}
 	case "m":
 		// Toggle AI mode (auto/manual)
-		if m.screen == screenFeeds && !m.aiFocused {
+		if (m.screen == screenFeeds || m.screen == screenDashboard) && !m.aiFocused {
 			m.aiAutoMode = !m.aiAutoMode
 			if m.aiAutoMode {
 				m.statusMessage = fmt.Sprintf("AI Auto mode enabled (every %ds)", m.aiInterval)
@@ -900,28 +1103,40 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "i":
-		// Cycle AI interval (only on My Feeds screen)
-		if m.screen == screenFeeds && !m.aiFocused {
+		// Cycle AI interval (works on My Feeds and Dashboard)
+		if (m.screen == screenFeeds || m.screen == screenDashboard) && !m.aiFocused {
 			m.aiIntervalIdx = (m.aiIntervalIdx + 1) % len(aiIntervalOptions)
 			m.aiInterval = aiIntervalOptions[m.aiIntervalIdx]
 			m.statusMessage = fmt.Sprintf("AI query interval set to %ds", m.aiInterval)
 		}
 	case "p":
-		// Toggle AI prompt editing
-		if m.screen == screenFeeds {
-			m.aiFocused = !m.aiFocused
-			if m.aiFocused {
-				m.aiPrompt.Focus()
-			} else {
-				m.aiPrompt.Blur()
-			}
+		// Focus AI prompt for editing (removed toggle behavior)
+		if (m.screen == screenFeeds || m.screen == screenDashboard) && !m.aiFocused {
+			m.aiFocused = true
+			m.aiPrompt.Focus()
 		}
 	case "esc":
-		// Exit AI prompt editing
+		// Exit AI prompt editing or go back from Feed Detail
 		if m.aiFocused {
 			m.aiFocused = false
 			m.aiPrompt.Blur()
 			return m, nil
+		}
+		// Go back from Feed Detail view to My Feeds
+		if m.screen == screenFeedDetail {
+			m.screen = screenFeeds
+			m.selectedFeed = nil
+			return m, nil
+		}
+	case "[":
+		// Scroll AI viewport up (My Feeds and Dashboard)
+		if (m.screen == screenFeeds || m.screen == screenDashboard) && !m.aiFocused && m.aiViewportReady {
+			m.aiViewport.LineUp(3)
+		}
+	case "]":
+		// Scroll AI viewport down (My Feeds and Dashboard)
+		if (m.screen == screenFeeds || m.screen == screenDashboard) && !m.aiFocused && m.aiViewportReady {
+			m.aiViewport.LineDown(3)
 		}
 	case "r":
 		// Force reconnect - close existing connection if any and reconnect
@@ -983,15 +1198,21 @@ func (m model) updateAuth(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	// Only update the focused input field
 	var cmd tea.Cmd
-	m.email, cmd = m.email.Update(msg)
-	cmds = append(cmds, cmd)
-	m.password, cmd = m.password.Update(msg)
-	cmds = append(cmds, cmd)
-	m.totp, cmd = m.totp.Update(msg)
-	cmds = append(cmds, cmd)
-	m.name, cmd = m.name.Update(msg)
-	cmds = append(cmds, cmd)
+	if m.email.Focused() {
+		m.email, cmd = m.email.Update(msg)
+		cmds = append(cmds, cmd)
+	} else if m.password.Focused() {
+		m.password, cmd = m.password.Update(msg)
+		cmds = append(cmds, cmd)
+	} else if m.totp.Focused() {
+		m.totp, cmd = m.totp.Update(msg)
+		cmds = append(cmds, cmd)
+	} else if m.name.Focused() {
+		m.name, cmd = m.name.Update(msg)
+		cmds = append(cmds, cmd)
+	}
 	return m, tea.Batch(cmds...)
 }
 
@@ -1197,7 +1418,7 @@ func (m model) viewApp() string {
 }
 
 func (m model) viewTabBar() string {
-	tabs := []string{"Dashboard", "Register Feed", "My Feeds"}
+	tabs := []string{"Dashboard", "Register Feed", "My Feeds", "Help"}
 	var renderedTabs []string
 
 	for i, tab := range tabs {
@@ -1237,6 +1458,8 @@ func (m model) viewContent() string {
 		return m.viewRegisterFeed()
 	case screenFeeds:
 		return m.viewMyFeeds()
+	case screenHelp:
+		return m.viewHelp()
 	default:
 		return ""
 	}
@@ -1245,48 +1468,112 @@ func (m model) viewContent() string {
 func (m model) viewMyFeeds() string {
 	if len(m.feeds) == 0 {
 		builder := strings.Builder{}
-		builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("📡 My Feeds"))
+		builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("My Feeds"))
 		builder.WriteString("\n\n")
 		builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("No feeds registered yet. Use 'Register Feed' tab to add a WebSocket feed!"))
 		return contentStyle.Render(builder.String())
 	}
 
-	// Feed list section (top-left)
-	feedListBuilder := strings.Builder{}
-	feedListBuilder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("📡 My Feeds"))
-	feedListBuilder.WriteString("\n\n")
+	// Calculate layout dimensions based on terminal size
+	leftColWidth := 35
+	middleColWidth := 60
+	margin := 2 // space between columns
 
-	for i, f := range m.feeds {
+	// Calculate AI panel width to extend to terminal edge with safe margin
+	// Total: leftCol + margin + middleCol + margin + aiCol + rightMargin
+	rightMargin := 6 // extra margin to prevent right side cutoff on smaller screens
+	usedWidth := leftColWidth + margin + middleColWidth + margin + rightMargin
+	aiColWidth := m.termWidth - usedWidth
+	if aiColWidth < 40 {
+		aiColWidth = 40 // minimum width
+	}
+
+	// Height calculations: Feed list is 12, we want Instructions + Feed list bottom to align with Live Stream bottom
+	feedListHeight := 12
+	streamHeight := 12
+	infoBoxHeight := 10 // approximate height of info box
+
+	// Total right column height = infoBox + streamBox
+	// Instructions should fill remaining space so its bottom aligns with stream bottom
+	// Left column total should equal right column total
+	instructHeight := infoBoxHeight + streamHeight - feedListHeight
+	if instructHeight < 8 {
+		instructHeight = 8
+	}
+
+	// AI panel height should match the full right column (infoBox + streamBox)
+	aiHeight := infoBoxHeight + streamHeight + 2 // +2 for borders
+
+	// Feed list section (top-left) - build content without title (title goes in border)
+	// Calculate visible feeds based on box height (subtract 2 for borders)
+	visibleFeeds := feedListHeight - 2
+	if visibleFeeds < 3 {
+		visibleFeeds = 3
+	}
+
+	// Determine scroll window for feeds
+	feedStartIdx := 0
+	feedEndIdx := len(m.feeds)
+	if len(m.feeds) > visibleFeeds {
+		// Center selected item in visible window
+		halfVisible := visibleFeeds / 2
+		feedStartIdx = m.selectedIdx - halfVisible
+		if feedStartIdx < 0 {
+			feedStartIdx = 0
+		}
+		feedEndIdx = feedStartIdx + visibleFeeds
+		if feedEndIdx > len(m.feeds) {
+			feedEndIdx = len(m.feeds)
+			feedStartIdx = feedEndIdx - visibleFeeds
+			if feedStartIdx < 0 {
+				feedStartIdx = 0
+			}
+		}
+	}
+
+	feedListBuilder := strings.Builder{}
+
+	// Show scroll indicator at top if needed
+	if feedStartIdx > 0 {
+		feedListBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("  ▲ more\n"))
+	}
+
+	for i := feedStartIdx; i < feedEndIdx; i++ {
+		f := m.feeds[i]
 		cursor := "  "
 		style := lipgloss.NewStyle()
 		if i == m.selectedIdx {
-			cursor = lipgloss.NewStyle().Foreground(cyanColor).Render("▶ ")
+			cursor = lipgloss.NewStyle().Foreground(cyanColor).Render("> ")
 			style = style.Foreground(brightCyanColor)
 		}
 		subscribed := ""
 		if m.isSubscribed(f.ID) {
-			subscribed = lipgloss.NewStyle().Foreground(greenColor).Render(" ✓")
+			subscribed = " [ok]"
 		}
-		line := fmt.Sprintf("%s%s [%s]%s", cursor, truncate(f.Name, 22), f.Category, subscribed)
+		// Calculate max name length: leftColWidth - 4 (borders) - 2 (cursor) - category - subscribed - brackets
+		maxNameLen := leftColWidth - 18
+		if maxNameLen < 10 {
+			maxNameLen = 10
+		}
+		feedName := truncate(f.Name, maxNameLen)
+		category := truncate(f.Category, 8)
+		line := fmt.Sprintf("%s%s [%s]%s", cursor, feedName, category, subscribed)
 		feedListBuilder.WriteString(style.Render(line))
 		feedListBuilder.WriteString("\n")
 	}
 
-	feedListBox := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(darkCyanColor).
-		Padding(1, 2).
-		Width(35).
-		Height(12).
-		Render(feedListBuilder.String())
+	// Show scroll indicator at bottom if needed
+	if feedEndIdx < len(m.feeds) {
+		feedListBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("  ▼ more"))
+	}
 
-	// Instructions section (bottom-left)
+	feedListBox := renderBoxWithTitle("My Feeds", feedListBuilder.String(), leftColWidth, feedListHeight, darkCyanColor, cyanColor)
+
+	// Instructions section (bottom-left) - content without title
 	instructBuilder := strings.Builder{}
-	instructBuilder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(magentaColor).Render("📖 Instructions"))
-	instructBuilder.WriteString("\n\n")
 	instructBuilder.WriteString(lipgloss.NewStyle().Foreground(brightCyanColor).Render("Navigation"))
 	instructBuilder.WriteString("\n")
-	instructBuilder.WriteString("  ↑/↓      Select feed\n")
+	instructBuilder.WriteString("  Up/Down  Select feed\n")
 	instructBuilder.WriteString("  Tab      Next tab\n")
 	instructBuilder.WriteString("  Shift+Tab Previous tab\n")
 	instructBuilder.WriteString("\n")
@@ -1297,13 +1584,16 @@ func (m model) viewMyFeeds() string {
 	instructBuilder.WriteString("  Shift+D  Delete my feed\n")
 	instructBuilder.WriteString("  l        Logout\n")
 	instructBuilder.WriteString("  q        Quit\n")
+	instructBuilder.WriteString("\n")
+	instructBuilder.WriteString(lipgloss.NewStyle().Foreground(brightCyanColor).Render("AI Analysis"))
+	instructBuilder.WriteString("\n")
+	instructBuilder.WriteString("  p        Edit prompt\n")
+	instructBuilder.WriteString("  Enter    Send prompt\n")
+	instructBuilder.WriteString("  Esc      Exit prompt\n")
+	instructBuilder.WriteString("  m        Auto/Manual\n")
+	instructBuilder.WriteString("  [ ]      Scroll output\n")
 
-	instructBox := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(darkMagentaColor).
-		Padding(1, 2).
-		Width(35).
-		Render(instructBuilder.String())
+	instructBox := renderBoxWithTitle("Instructions", instructBuilder.String(), leftColWidth, instructHeight, darkMagentaColor, magentaColor)
 
 	// Left column: Feed list + Instructions
 	leftColumn := lipgloss.JoinVertical(lipgloss.Left, feedListBox, instructBox)
@@ -1314,75 +1604,68 @@ func (m model) viewMyFeeds() string {
 	if m.selectedIdx < len(m.feeds) {
 		feed := m.feeds[m.selectedIdx]
 
-		// Feed Info Box (top-right)
-		infoBuilder := strings.Builder{}
-		infoBuilder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render(fmt.Sprintf("📋 %s", feed.Name)))
-		infoBuilder.WriteString("\n\n")
-		infoBuilder.WriteString(fmt.Sprintf("Category: %s\n", feed.Category))
-		infoBuilder.WriteString(fmt.Sprintf("URL: %s\n", truncate(feed.URL, 50)))
-		if feed.EventName != "" {
-			infoBuilder.WriteString(fmt.Sprintf("Event: %s\n", feed.EventName))
+		// Calculate max content width: middleColWidth - 4 (borders/padding)
+		maxContentWidth := middleColWidth - 6
+		if maxContentWidth < 30 {
+			maxContentWidth = 30
 		}
 
-		subStatus := lipgloss.NewStyle().Foreground(redColor).Render("● Not Subscribed")
+		// Feed Info Box (top-right) - content without title
+		infoBuilder := strings.Builder{}
+		infoBuilder.WriteString(truncate(feed.Name, maxContentWidth))
+		infoBuilder.WriteString("\n")
+		infoBuilder.WriteString(fmt.Sprintf("Category: %s\n", truncate(feed.Category, maxContentWidth-10)))
+		infoBuilder.WriteString(fmt.Sprintf("URL: %s\n", truncate(feed.URL, maxContentWidth-5)))
+		if feed.EventName != "" {
+			infoBuilder.WriteString(fmt.Sprintf("Event: %s\n", truncate(feed.EventName, maxContentWidth-7)))
+		}
+
+		subStatus := "[-] Not Subscribed"
 		if m.isSubscribed(feed.ID) {
-			subStatus = lipgloss.NewStyle().Foreground(greenColor).Render("● Subscribed")
+			subStatus = "[+] Subscribed"
 		}
 		infoBuilder.WriteString(fmt.Sprintf("Status: %s\n", subStatus))
 		infoBuilder.WriteString(fmt.Sprintf("WS: %s", m.wsStatus))
 
-		infoBox := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(darkCyanColor).
-			Padding(1, 2).
-			Width(60).
-			Render(infoBuilder.String())
+		infoBox := renderBoxWithTitle("Feed Info", infoBuilder.String(), middleColWidth, infoBoxHeight, darkCyanColor, cyanColor)
 
-		// Live Stream Box (bottom-right)
+		// Live Stream Box (bottom-right) - content without title
 		streamBuilder := strings.Builder{}
-		streamBuilder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("📺 Live Stream"))
-		streamBuilder.WriteString("\n\n")
+
+		// Calculate max data width: middleColWidth - 4 (borders) - 9 (timestamp + space)
+		maxDataWidth := middleColWidth - 15
+		if maxDataWidth < 20 {
+			maxDataWidth = 20
+		}
 
 		entries := m.feedEntries[feed.ID]
 		if len(entries) == 0 {
 			if m.wsStatus != "connected" {
-				streamBuilder.WriteString(lipgloss.NewStyle().Foreground(redColor).Render("⚠ WebSocket not connected\n"))
-				streamBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Reconnecting..."))
+				streamBuilder.WriteString("[!] WS not connected\n")
+				streamBuilder.WriteString("Reconnecting...")
 			} else if !m.isSubscribed(feed.ID) {
-				streamBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Press 's' to subscribe and start streaming..."))
+				streamBuilder.WriteString("Press 's' to subscribe...")
 			} else {
-				streamBuilder.WriteString(lipgloss.NewStyle().Foreground(greenColor).Render("● Connected & Subscribed\n"))
-				streamBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Waiting for data from WebSocket..."))
+				streamBuilder.WriteString("[+] Connected & Subscribed\n")
+				streamBuilder.WriteString("Waiting for data...")
 			}
 		} else {
-			// Show latest entries (up to 10)
-			showCount := 10
+			// Show latest entries (up to fit in box)
+			showCount := streamHeight - 3 // account for borders
 			if len(entries) < showCount {
 				showCount = len(entries)
 			}
 			for i := 0; i < showCount; i++ {
 				e := entries[i]
-				timestamp := lipgloss.NewStyle().Foreground(dimCyanColor).Render(e.Time.Format("15:04:05"))
-				streamBuilder.WriteString(fmt.Sprintf("%s %s\n", timestamp, truncate(e.Data, 70)))
+				timestamp := e.Time.Format("15:04:05")
+				streamBuilder.WriteString(fmt.Sprintf("%s %s\n", timestamp, truncate(e.Data, maxDataWidth)))
 			}
 		}
 
-		streamBox := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(darkCyanColor).
-			Padding(1, 2).
-			Width(55).
-			Height(12).
-			Render(streamBuilder.String())
+		streamBox := renderBoxWithTitle("Live Stream", streamBuilder.String(), middleColWidth, streamHeight, darkCyanColor, cyanColor)
 
-		// AI Analysis Box (right column)
+		// AI Analysis Box (right column) - with scrollable output
 		aiBuilder := strings.Builder{}
-		aiTitle := "🤖 AI Analysis"
-		if m.aiFocused {
-			aiTitle = "🤖 AI Analysis (editing)"
-		}
-		aiBuilder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(magentaColor).Render(aiTitle))
-		aiBuilder.WriteString("\n\n")
 
 		// Mode toggle
 		modeLabel := "Manual"
@@ -1391,54 +1674,120 @@ func (m model) viewMyFeeds() string {
 		}
 		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Mode: "))
 		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(brightCyanColor).Render(modeLabel))
+		aiBuilder.WriteString("\n")
+
+		// Dynamic separator based on AI panel width
+		separatorWidth := aiColWidth - 8 // account for padding and border
+		if separatorWidth < 20 {
+			separatorWidth = 20
+		}
+		separator := strings.Repeat("-", separatorWidth)
+		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(darkMagentaColor).Render(separator))
 		aiBuilder.WriteString("\n\n")
 
-		// Prompt input
-		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Prompt:"))
+		// Output stream - show last 3 responses with full content (scrollable)
+		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Output Stream (scroll: [ ]):"))
 		aiBuilder.WriteString("\n")
-		if m.aiFocused {
-			aiBuilder.WriteString(m.aiPrompt.View())
-		} else {
-			promptVal := m.aiPrompt.Value()
-			if promptVal == "" {
-				promptVal = "(default: Analyze the data)"
-			}
-			aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render(truncate(promptVal, 40)))
-		}
-		aiBuilder.WriteString("\n\n")
 
-		// Response
-		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Response:"))
-		aiBuilder.WriteString("\n")
-		if m.aiLoading {
-			aiBuilder.WriteString(lipgloss.NewStyle().Foreground(magentaColor).Render("⏳ Querying LLM..."))
-		} else if m.aiResponse != "" {
-			// Word wrap the response
-			wrapped := wrapText(m.aiResponse, 38)
-			lines := strings.Split(wrapped, "\n")
-			maxLines := 8
-			if len(lines) > maxLines {
-				lines = lines[:maxLines]
-				lines = append(lines, "...")
-			}
-			aiBuilder.WriteString(lipgloss.NewStyle().Foreground(whiteColor).Render(strings.Join(lines, "\n")))
-		} else {
-			aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("No response yet.\nPress 'a' to query AI."))
+		// Calculate available height for output area
+		// Total height - header(3) - mode(2) - separator(2) - prompt(3) - controls(2) - borders/padding(4)
+		outputAreaHeight := aiHeight - 16
+		if outputAreaHeight < 6 {
+			outputAreaHeight = 6
 		}
+
+		// Calculate text wrap width for AI output
+		aiTextWidth := aiColWidth - 10 // account for padding, border, and some margin
+		if aiTextWidth < 30 {
+			aiTextWidth = 30
+		}
+
+		if m.aiLoading && len(m.aiOutputHistory) == 0 {
+			aiBuilder.WriteString(lipgloss.NewStyle().Foreground(magentaColor).Render("[...] Querying LLM..."))
+			aiBuilder.WriteString("\n")
+		}
+
+		if len(m.aiOutputHistory) == 0 && !m.aiLoading {
+			aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("No outputs yet. Press 'p' then Enter."))
+			aiBuilder.WriteString("\n")
+		} else {
+			// Build scrollable content for last 3 outputs
+			var outputContent strings.Builder
+			maxOutputs := 3
+			startIdx := 0
+			if len(m.aiOutputHistory) > maxOutputs {
+				startIdx = len(m.aiOutputHistory) - maxOutputs
+			}
+
+			for i := startIdx; i < len(m.aiOutputHistory); i++ {
+				entry := m.aiOutputHistory[i]
+				// Header line with timestamp and provider
+				timestamp := entry.Timestamp.Format("15:04:05")
+				header := fmt.Sprintf("[%s | %s | %dms]", timestamp, entry.Provider, entry.Duration)
+				outputContent.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render(header))
+				outputContent.WriteString("\n")
+
+				// Full output content - wrapped to fit panel width
+				wrapped := wrapText(entry.Response, aiTextWidth)
+				outputContent.WriteString(lipgloss.NewStyle().Foreground(whiteColor).Render(wrapped))
+				outputContent.WriteString("\n")
+
+				// Add separator between outputs
+				if i < len(m.aiOutputHistory)-1 {
+					outputContent.WriteString(lipgloss.NewStyle().Foreground(grayColor).Render("---"))
+					outputContent.WriteString("\n")
+				}
+			}
+
+			// Show current streaming output if loading
+			if m.aiLoading && m.aiResponse != "" {
+				outputContent.WriteString(lipgloss.NewStyle().Foreground(grayColor).Render("---"))
+				outputContent.WriteString("\n")
+				outputContent.WriteString(lipgloss.NewStyle().Foreground(magentaColor).Render("[...] Streaming..."))
+				outputContent.WriteString("\n")
+				wrapped := wrapText(m.aiResponse, aiTextWidth)
+				outputContent.WriteString(lipgloss.NewStyle().Foreground(whiteColor).Render(wrapped))
+				outputContent.WriteString("\n")
+			}
+
+			// Render the scrollable output area
+			outputLines := strings.Split(outputContent.String(), "\n")
+
+			// Simple viewport: show last N lines that fit
+			visibleLines := outputAreaHeight
+			startLine := 0
+			if len(outputLines) > visibleLines {
+				startLine = len(outputLines) - visibleLines
+			}
+
+			for i := startLine; i < len(outputLines) && i < startLine+visibleLines; i++ {
+				aiBuilder.WriteString(outputLines[i])
+				if i < len(outputLines)-1 && i < startLine+visibleLines-1 {
+					aiBuilder.WriteString("\n")
+				}
+			}
+
+			// Show scroll indicator if there's more content
+			if len(outputLines) > visibleLines {
+				aiBuilder.WriteString("\n")
+				aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render(fmt.Sprintf("  [%d more lines above]", startLine)))
+			}
+		}
+
+		aiBuilder.WriteString("\n")
+		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(darkMagentaColor).Render(separator))
+		aiBuilder.WriteString("\n")
+
+		// Prompt input area - with green > prefix only
+		promptPrefix := lipgloss.NewStyle().Foreground(greenColor).Render("> ")
+		aiBuilder.WriteString(promptPrefix)
+		aiBuilder.WriteString(m.aiPrompt.View())
+		aiBuilder.WriteString("\n\n")
 
 		// AI Controls hint
-		aiBuilder.WriteString("\n\n")
-		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(darkMagentaColor).Render("─────────────────────"))
-		aiBuilder.WriteString("\n")
-		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("a: query | m: mode | i: interval | p: edit prompt"))
+		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Enter: send | m: mode | p: edit prompt"))
 
-		aiBox := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(darkMagentaColor).
-			Padding(1, 2).
-			Width(45).
-			Height(22).
-			Render(aiBuilder.String())
+		aiBox := renderBoxWithTitle("AI Analysis", aiBuilder.String(), aiColWidth, aiHeight, darkMagentaColor, magentaColor)
 
 		middleColumn := lipgloss.JoinVertical(lipgloss.Left, infoBox, streamBox)
 		rightBuilder.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, middleColumn, "  ", aiBox))
@@ -1456,7 +1805,7 @@ func (m model) viewDashboard() string {
 	// Fallback to simple dashboard when no feed metrics yet
 	builder := strings.Builder{}
 
-	builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("📊 Observability Dashboard"))
+	builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("Observability Dashboard"))
 	builder.WriteString("\n\n")
 
 	stats := []string{
@@ -1488,17 +1837,15 @@ func (m model) viewFeedDetail() string {
 	feed := m.selectedFeed
 	builder := strings.Builder{}
 
-	builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render(fmt.Sprintf("📡 %s", feed.Name)))
-	builder.WriteString("\n\n")
-
+	// Feed info section
 	builder.WriteString(fmt.Sprintf("Category: %s | Owner: %s\n", feed.Category, feed.OwnerName))
-	builder.WriteString(fmt.Sprintf("URL: %s\n", feed.URL))
+	builder.WriteString(fmt.Sprintf("URL: %s\n", truncate(feed.URL, 80)))
 	builder.WriteString(fmt.Sprintf("Event: %s\n", feed.EventName))
 	builder.WriteString(fmt.Sprintf("Public: %v | Active: %v\n", feed.IsPublic, feed.IsActive))
 
 	subStatus := lipgloss.NewStyle().Foreground(redColor).Render("not subscribed")
 	if m.isSubscribed(feed.ID) {
-		subStatus = lipgloss.NewStyle().Foreground(greenColor).Render("subscribed ✓")
+		subStatus = lipgloss.NewStyle().Foreground(greenColor).Render("subscribed [ok]")
 	}
 	builder.WriteString(fmt.Sprintf("Status: %s | WS: %s\n", subStatus, m.wsStatus))
 
@@ -1506,19 +1853,45 @@ func (m model) viewFeedDetail() string {
 	builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(dimCyanColor).Render("Live data (latest first):"))
 	builder.WriteString("\n")
 
+	// Calculate available height for entries
+	// Total height - info section (~7 lines) - footer (~2 lines) - borders (~4 lines)
+	availableHeight := m.termHeight - 20
+	if availableHeight < 5 {
+		availableHeight = 5
+	}
+
 	entries := m.feedEntries[feed.ID]
 	if len(entries) == 0 {
 		builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("No data yet. Subscribe (s) or wait for updates."))
 	} else {
-		for _, e := range entries {
-			builder.WriteString(fmt.Sprintf("[%s] %s\n", e.Time.Format("15:04:05"), truncate(e.Data, 120)))
+		// Limit entries to available height
+		showCount := availableHeight
+		if len(entries) < showCount {
+			showCount = len(entries)
+		}
+		for i := 0; i < showCount; i++ {
+			e := entries[i]
+			builder.WriteString(fmt.Sprintf("[%s] %s\n", e.Time.Format("15:04:05"), truncate(e.Data, 100)))
+		}
+		if len(entries) > showCount {
+			builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render(fmt.Sprintf("  ... and %d more entries", len(entries)-showCount)))
 		}
 	}
 
 	builder.WriteString("\n")
-	builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("s to subscribe/unsubscribe | Esc to go back"))
+	builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("s: subscribe/unsubscribe | Esc: go back to My Feeds"))
 
-	return contentStyle.Render(builder.String())
+	// Calculate box dimensions
+	boxWidth := m.termWidth - 4
+	if boxWidth > 120 {
+		boxWidth = 120
+	}
+	boxHeight := m.termHeight - 10
+	if boxHeight < 15 {
+		boxHeight = 15
+	}
+
+	return renderBoxWithTitle(feed.Name, builder.String(), boxWidth, boxHeight, darkCyanColor, cyanColor)
 }
 
 func (m model) viewRegisterFeed() string {
@@ -1568,6 +1941,304 @@ func (m model) viewRegisterFeed() string {
 	}
 
 	return contentStyle.Render(builder.String())
+}
+
+func (m model) viewHelp() string {
+	// Define help pages content
+	helpPages := []struct {
+		title   string
+		content string
+	}{
+		{
+			title: "Getting Started",
+			content: `Welcome to TurboStream TUI!
+
+TurboStream is a real-time data streaming platform that allows you to 
+subscribe to WebSocket feeds and get AI-powered analysis of incoming data.
+
+NAVIGATION
+----------
+  Tab / Shift+Tab    Switch between tabs
+  Arrow Keys         Navigate within views
+  Enter              Select/Confirm
+  Esc                Go back/Cancel
+  q                  Quit application
+
+TABS OVERVIEW
+-------------
+  Dashboard       View your subscribed feeds in real-time
+  Register Feed   Create and register new WebSocket feeds  
+  My Feeds        Manage your registered feeds
+  Help            You are here! Documentation and guides
+
+Use <- and -> arrow keys to navigate between help pages.`,
+		},
+		{
+			title: "Dashboard",
+			content: `DASHBOARD VIEW
+==============
+
+The Dashboard is your main view for monitoring real-time data streams.
+
+LAYOUT
+------
+  Left Panel      List of your subscribed feeds
+  Middle Panel    Live stream data from selected feed
+  Right Panel     AI-powered analysis of the data
+
+KEYBOARD SHORTCUTS
+------------------
+  Up/Down         Select different feed in sidebar
+  r               Reconnect WebSocket
+  i               Change AI interval (5s/10s/30s/60s)
+  m               Toggle AI auto/manual mode
+  p               Custom AI prompt
+  [/]             Scroll AI output up/down
+
+The Dashboard displays real-time streaming data from your subscribed 
+feeds. Press 'i' to cycle through AI analysis intervals.`,
+		},
+		{
+			title: "Register Feed",
+			content: `REGISTERING A NEW FEED
+======================
+
+Create custom WebSocket feeds to stream data from any source.
+
+REQUIRED FIELDS
+---------------
+  Feed Name *       A unique name for your feed
+  WebSocket URL *   The WebSocket endpoint URL (wss:// or ws://)
+
+OPTIONAL FIELDS
+---------------
+  Description       Brief description of what the feed provides
+  Category          Category for organization (crypto, stocks, etc.)
+  Event Name        Socket.io event name (if applicable)
+  Subscription Msg  JSON message to send after connecting
+  AI System Prompt  Custom prompt for AI analysis of this feed
+
+EXAMPLE: CRYPTO FEED
+--------------------
+  Name: Bitcoin Price
+  URL: wss://stream.binance.com:9443/ws/btcusdt@ticker
+  Category: crypto
+  AI Prompt: Analyze this cryptocurrency price data and identify trends
+
+TIPS
+----
+  - Test your WebSocket URL before registering
+  - Use descriptive names for easy identification
+  - Set a good AI prompt for better analysis`,
+		},
+		{
+			title: "My Feeds",
+			content: `MANAGING YOUR FEEDS
+===================
+
+The My Feeds view shows all your registered feeds and their status,
+with live data streaming and AI-powered analysis.
+
+LAYOUT
+------
+  Left Panel      Feed list with subscription status
+  Middle Panel    Live stream data from selected feed
+  Right Panel     AI-powered analysis of the data
+
+KEYBOARD SHORTCUTS
+------------------
+  Up/Down     Navigate feed list
+  Enter       View feed details
+  s           Subscribe/Unsubscribe to feed
+  D           Delete selected feed (Shift+D)
+  r           Reconnect WebSocket
+  p           Open custom AI prompt input
+  [/]         Scroll AI output up/down
+  Esc         Return from feed details
+
+AI ANALYSIS
+-----------
+The AI panel provides intelligent insights about your data streams.
+Press 'p' to enter a custom prompt for analysis.
+
+The AI uses your feed's system prompt combined with recent data to 
+generate contextual analysis and insights.
+
+AI PROMPT TIPS
+--------------
+  - Be specific about what you want analyzed
+  - Reference data fields in your prompt
+  - Ask for trends, anomalies, or summaries
+
+FEED DETAILS VIEW
+-----------------
+  Press Enter on a feed to see:
+  - Full feed information and WebSocket URL
+  - AI system prompt configuration
+  - Recent data samples
+
+  Press Esc to return to feed list
+
+SUBSCRIPTIONS
+-------------
+  - Subscribe to feeds you want on your Dashboard
+  - Subscribed feeds show data in real-time
+  - You can have multiple active subscriptions`,
+		},
+		{
+			title: "Tips & Tricks",
+			content: `TIPS & TRICKS
+=============
+
+PERFORMANCE
+-----------
+  - Limit active subscriptions for better performance
+  - Use specific AI prompts for more relevant analysis
+  - Close unused feeds to reduce bandwidth
+
+TROUBLESHOOTING
+---------------
+  Connection Issues:
+  - Check your internet connection
+  - Verify WebSocket URL is correct
+  - Some feeds require authentication
+
+  No Data Showing:
+  - Ensure you're subscribed to the feed
+  - Check if the feed requires a subscription message
+  - Try reconnecting with 'r'
+
+  AI Not Working:
+  - Check your API keys in environment variables
+  - Ensure you have API credits
+  - Try a simpler prompt
+
+KEYBOARD REFERENCE
+------------------
+  Global:
+    Tab/Shift+Tab   Switch tabs
+    q               Quit
+    
+  Dashboard & My Feeds:
+    Up/Down         Navigate feed list
+    i               Change AI interval
+    m               Toggle AI auto/manual
+    p               Custom AI prompt
+    [/]             Scroll AI output
+    r               Reconnect WebSocket
+    
+  My Feeds Only:
+    s               Subscribe/Unsubscribe
+    D               Delete feed (Shift+D)
+    Enter           View feed details
+    Esc             Back to list
+    
+  Help:
+    Left/Right      Navigate pages
+    Up/Down         Scroll content
+    1-5             Jump to page`,
+		},
+	}
+
+	// Ensure helpPage is in bounds
+	if m.helpPage < 0 {
+		m.helpPage = 0
+	}
+	if m.helpPage >= len(helpPages) {
+		m.helpPage = len(helpPages) - 1
+	}
+
+	currentPage := helpPages[m.helpPage]
+
+	// Build content
+	builder := strings.Builder{}
+
+	// Page navigation header
+	navStyle := lipgloss.NewStyle().Foreground(dimCyanColor)
+	pageIndicator := fmt.Sprintf("Page %d of %d", m.helpPage+1, len(helpPages))
+
+	// Build page dots
+	dots := ""
+	for i := 0; i < len(helpPages); i++ {
+		if i == m.helpPage {
+			dots += lipgloss.NewStyle().Foreground(cyanColor).Render(" ● ")
+		} else {
+			dots += lipgloss.NewStyle().Foreground(dimCyanColor).Render(" ○ ")
+		}
+	}
+
+	builder.WriteString(navStyle.Render(pageIndicator))
+	builder.WriteString("  ")
+	builder.WriteString(dots)
+	builder.WriteString("\n\n")
+
+	// Content with scroll support
+	contentLines := strings.Split(currentPage.content, "\n")
+
+	// Apply scroll offset
+	startLine := m.helpScrollPos
+	if startLine >= len(contentLines) {
+		startLine = len(contentLines) - 1
+	}
+	if startLine < 0 {
+		startLine = 0
+	}
+
+	// Calculate visible lines based on box height (reserve space for header and footer)
+	visibleLines := m.termHeight - 16
+	if visibleLines < 10 {
+		visibleLines = 10
+	}
+
+	endLine := startLine + visibleLines
+	if endLine > len(contentLines) {
+		endLine = len(contentLines)
+	}
+
+	// Show scroll indicators
+	if startLine > 0 {
+		builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("  ▲ scroll up for more"))
+		builder.WriteString("\n")
+	}
+
+	for _, line := range contentLines[startLine:endLine] {
+		// Style headers (lines with === or ---)
+		if strings.HasPrefix(line, "===") || strings.HasPrefix(line, "---") {
+			builder.WriteString(lipgloss.NewStyle().Foreground(darkCyanColor).Render(line))
+		} else if len(line) > 0 && line[0] != ' ' && strings.HasSuffix(strings.TrimSpace(line), ":") {
+			// Section headers ending with :
+			builder.WriteString(lipgloss.NewStyle().Foreground(cyanColor).Bold(true).Render(line))
+		} else if strings.HasPrefix(strings.TrimSpace(line), "-") || strings.HasPrefix(strings.TrimSpace(line), "*") {
+			// Bullet points
+			builder.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#AAAAAA")).Render(line))
+		} else {
+			builder.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#DDDDDD")).Render(line))
+		}
+		builder.WriteString("\n")
+	}
+
+	// Show scroll down indicator if there's more content
+	if endLine < len(contentLines) {
+		builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("  ▼ scroll down for more"))
+		builder.WriteString("\n")
+	}
+
+	// Navigation hint at bottom
+	builder.WriteString("\n")
+	navHint := "<- -> navigate pages | Tab switch tabs | q quit"
+	builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render(navHint))
+
+	// Render in a box
+	boxWidth := m.termWidth - 4
+	if boxWidth > 100 {
+		boxWidth = 100
+	}
+	boxHeight := m.termHeight - 10
+	if boxHeight < 20 {
+		boxHeight = 20
+	}
+
+	return renderBoxWithTitle(currentPage.title, builder.String(), boxWidth, boxHeight, darkCyanColor, cyanColor)
 }
 
 func (m model) viewFooter() string {
@@ -1668,7 +2339,7 @@ func loadFeedsCmd(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		feeds, err := client.ListFeeds(ctx)
+		feeds, err := client.MyFeeds(ctx)
 		return feedsMsg{Feeds: feeds, Err: err}
 	}
 }
