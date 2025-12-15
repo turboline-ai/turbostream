@@ -149,7 +149,7 @@ func (s *LLMService) Query(ctx context.Context, req QueryRequest) (*QueryRespons
 	start := time.Now()
 
 	if !s.Enabled() {
-		return nil, errors.New("Azure OpenAI not configured")
+		return nil, errors.New("azure OpenAI not configured")
 	}
 
 	// Get feed context
@@ -207,7 +207,7 @@ func (s *LLMService) StreamQuery(ctx context.Context, req QueryRequest, tokenCha
 	defer close(tokenChan)
 
 	if !s.Enabled() {
-		return nil, errors.New("Azure OpenAI not configured")
+		return nil, errors.New("azure OpenAI not configured")
 	}
 
 	// Get feed context

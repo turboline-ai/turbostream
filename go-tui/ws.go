@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -55,7 +56,9 @@ func dialWS(url, userID, userAgent string) (*wsClient, error) {
 		"type":    "register-user",
 		"payload": regPayload,
 	}); err != nil {
-		conn.Close(websocket.StatusInternalError, "register failed")
+		if closeErr := conn.Close(websocket.StatusInternalError, "register failed"); closeErr != nil {
+			log.Printf("error closing connection after registration failure: %v", closeErr)
+		}
 		cancel()
 		return nil, fmt.Errorf("register-user failed: %w", err)
 	}

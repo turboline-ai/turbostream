@@ -26,6 +26,7 @@ type WSMessage struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
+// Client represents a connected WebSocket client with context and write synchronization
 type Client struct {
 	conn    *coderws.Conn
 	ctx     context.Context
@@ -34,6 +35,7 @@ type Client struct {
 	userID  string
 }
 
+// send writes a message to the client's WebSocket connection with thread safety
 func (c *Client) send(msg WSMessage) {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
@@ -46,6 +48,7 @@ func (c *Client) send(msg WSMessage) {
 	}
 }
 
+// RoomManager manages room memberships and client subscriptions with thread safety
 type RoomManager struct {
 	mu          sync.RWMutex
 	rooms       map[string]map[*Client]struct{}
@@ -183,7 +186,9 @@ func (m *Manager) Handle(w http.ResponseWriter, r *http.Request) {
 func (m *Manager) runClient(client *Client) {
 	defer func() {
 		m.rooms.LeaveAll(client)
-		client.conn.Close(coderws.StatusNormalClosure, "disconnect")
+		if err := client.conn.Close(coderws.StatusNormalClosure, "disconnect"); err != nil {
+			log.Printf("error closing client connection: %v", err)
+		}
 		client.cancel()
 		log.Printf("client disconnected (userID: %s)", client.userID)
 	}()
@@ -494,14 +499,21 @@ func (m *Manager) readLoop(feed models.WebSocketFeed, conn *gws.Conn, stop chan 
 		m.feedMu.Lock()
 		delete(m.feedConns, feed.ID.Hex())
 		m.feedMu.Unlock()
-		conn.Close()
+		if err := conn.Close(); err != nil {
+			log.Printf("error closing feed %s connection: %v", feed.ID.Hex(), err)
+		}
 		log.Printf("feed %s connection closed", feed.ID.Hex())
 	}()
 
 	// Set up ping/pong to keep connection alive
-	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+		log.Printf("error setting initial read deadline for feed %s: %v", feed.ID.Hex(), err)
+		return
+	}
 	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+			log.Printf("error setting read deadline in pong handler for feed %s: %v", feed.ID.Hex(), err)
+		}
 		return nil
 	})
 
@@ -539,7 +551,10 @@ func (m *Manager) readLoop(feed models.WebSocketFeed, conn *gws.Conn, stop chan 
 
 		case msg := <-msgChan:
 			// Reset read deadline on successful message
-			conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+			if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+				log.Printf("error resetting read deadline for feed %s: %v", feed.ID.Hex(), err)
+				return
+			}
 
 			// Try to parse as JSON for better display
 			var jsonData interface{}

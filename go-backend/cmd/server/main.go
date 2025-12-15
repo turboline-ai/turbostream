@@ -75,7 +75,17 @@ func main() {
 		router.ServeHTTP(w, r)
 	})
 
-	if err := http.ListenAndServe(addr, handler); err != nil {
+	// Configure HTTP server with proper timeouts to prevent resource exhaustion
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadTimeout:       15 * time.Second,  // Max time to read entire request
+		WriteTimeout:      15 * time.Second,  // Max time to write response
+		IdleTimeout:       60 * time.Second,  // Max time for keepalive connections
+		ReadHeaderTimeout: 5 * time.Second,   // Max time to read request headers
+	}
+
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
 }

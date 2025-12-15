@@ -12,10 +12,12 @@ import (
 	"github.com/turboline-ai/turbostream/go-backend/internal/services"
 )
 
+// AuthHandler handles HTTP requests for authentication and user management
 type AuthHandler struct {
 	Service *services.AuthService
 }
 
+// NewAuthHandler creates a new authentication handler instance
 func NewAuthHandler(service *services.AuthService) *AuthHandler {
 	return &AuthHandler{Service: service}
 }
@@ -41,6 +43,8 @@ func (h *AuthHandler) RegisterProtected(r *gin.RouterGroup) {
 	r.POST("/sessions/terminate-others", h.terminateOthers)
 	r.GET("/login-activity", h.loginActivity)
 }
+
+// register handles user registration and returns JWT token
 func (h *AuthHandler) register(c *gin.Context) {
 	var body struct {
 		Email    string `json:"email"`
@@ -62,6 +66,7 @@ func (h *AuthHandler) register(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"success": true, "message": "User registered successfully", "token": token, "user": user})
 }
 
+// login authenticates user with email/password and optional 2FA
 func (h *AuthHandler) login(c *gin.Context) {
 	var body struct {
 		Email     string `json:"email"`
@@ -83,6 +88,7 @@ func (h *AuthHandler) login(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Login successful", "token": token, "user": user})
 }
 
+// me retrieves the authenticated user's profile information
 func (h *AuthHandler) me(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	ctx, cancel := contextWithTimeout(c)
@@ -95,6 +101,7 @@ func (h *AuthHandler) me(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "user": user})
 }
 
+// GetTokenUsage retrieves the user's token quota and usage statistics
 func (h *AuthHandler) GetTokenUsage(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	ctx, cancel := contextWithTimeout(c)
@@ -107,10 +114,12 @@ func (h *AuthHandler) GetTokenUsage(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "tokenUsage": user.TokenUsage})
 }
 
+// logout handles user logout (JWT is stateless, so this is primarily for client-side cleanup)
 func (h *AuthHandler) logout(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Logout successful"})
 }
 
+// changePassword updates the user's password after verifying current password
 func (h *AuthHandler) changePassword(c *gin.Context) {
 	var body struct {
 		CurrentPassword string `json:"currentPassword"`
@@ -130,6 +139,7 @@ func (h *AuthHandler) changePassword(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+// twoFactorSetup generates TOTP secret and QR code for 2FA enrollment
 func (h *AuthHandler) twoFactorSetup(c *gin.Context) {
 	email := c.GetString("userEmail")
 	secret, qr, manual, err := h.Service.TwoFactorSetup(email)
@@ -140,6 +150,7 @@ func (h *AuthHandler) twoFactorSetup(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"secret": secret, "qrCodeUrl": qr, "manualEntryKey": manual}})
 }
 
+// enableTwoFactor activates 2FA after TOTP token verification and generates backup codes
 func (h *AuthHandler) enableTwoFactor(c *gin.Context) {
 	var body struct {
 		Secret string `json:"secret"`
@@ -160,6 +171,7 @@ func (h *AuthHandler) enableTwoFactor(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "backupCodes": codes})
 }
 
+// disableTwoFactor removes 2FA from the user's account
 func (h *AuthHandler) disableTwoFactor(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	ctx, cancel := contextWithTimeout(c)
@@ -171,6 +183,7 @@ func (h *AuthHandler) disableTwoFactor(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+// backupCodeStatus returns the count of unused backup codes for the user
 func (h *AuthHandler) backupCodeStatus(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	ctx, cancel := contextWithTimeout(c)
@@ -183,6 +196,7 @@ func (h *AuthHandler) backupCodeStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "unusedCount": count})
 }
 
+// regenerateBackupCodes creates a new set of backup codes after TOTP verification
 func (h *AuthHandler) regenerateBackupCodes(c *gin.Context) {
 	var body struct {
 		Token string `json:"token"`
@@ -202,6 +216,7 @@ func (h *AuthHandler) regenerateBackupCodes(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "backupCodes": codes})
 }
 
+// sessions retrieves all active sessions for the authenticated user
 func (h *AuthHandler) sessions(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	ctx, cancel := contextWithTimeout(c)
@@ -214,6 +229,7 @@ func (h *AuthHandler) sessions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "sessions": sessions})
 }
 
+// terminateSession deactivates a specific session by ID
 func (h *AuthHandler) terminateSession(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	sid, err := primitive.ObjectIDFromHex(c.Param("id"))
@@ -230,6 +246,7 @@ func (h *AuthHandler) terminateSession(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+// terminateOthers deactivates all other sessions except the current one
 func (h *AuthHandler) terminateOthers(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	ctx, cancel := contextWithTimeout(c)
@@ -242,6 +259,7 @@ func (h *AuthHandler) terminateOthers(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "terminatedCount": count})
 }
 
+// loginActivity retrieves recent login attempts for the user with optional limit
 func (h *AuthHandler) loginActivity(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	limit := int64(10)

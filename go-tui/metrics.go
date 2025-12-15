@@ -298,9 +298,13 @@ func (t *tokenSampler) Add(promptTokens, responseTokens int, ttftMs, genTimeMs f
 	defer t.mu.Unlock()
 	now := time.Now()
 
-	// Track totals and last values
-	t.totalInputTokens += uint64(promptTokens)
-	t.totalOutputTokens += uint64(responseTokens)
+	// Track totals and last values (prevent integer overflow by validating non-negative)
+	if promptTokens > 0 {
+		t.totalInputTokens += uint64(promptTokens)
+	}
+	if responseTokens > 0 {
+		t.totalOutputTokens += uint64(responseTokens)
+	}
 	t.lastInputTokens = promptTokens
 	t.lastOutputTokens = responseTokens
 	t.lastTTFT = ttftMs
@@ -460,7 +464,10 @@ func (mc *MetricsCollector) RecordMessage(feedID string, payloadSize int) {
 	}
 
 	fm.MessagesReceivedTotal++
-	fm.BytesReceivedTotal += uint64(payloadSize)
+	// Prevent integer overflow: only add positive sizes
+	if payloadSize > 0 {
+		fm.BytesReceivedTotal += uint64(payloadSize)
+	}
 	fm.PayloadSizeLastBytes = payloadSize
 	if payloadSize > fm.PayloadSizeMaxBytes {
 		fm.PayloadSizeMaxBytes = payloadSize
