@@ -1,5 +1,7 @@
 # TurboStream
 
+![Banner](https://turbocdn.blob.core.windows.net/blog-images/terminal-ui.png)
+
 **Real-time data streaming platform with AI-powered analysis**
 
 TurboStream is an open-source platform for consuming, analyzing, and visualizing real-time data feeds. It combines a high-performance Go backend with a feature-rich terminal UI. 
