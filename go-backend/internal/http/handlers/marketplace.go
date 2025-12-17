@@ -17,15 +17,18 @@ import (
 	"github.com/turboline-ai/turbostream/go-backend/internal/socket"
 )
 
+// MarketplaceHandler handles HTTP requests for feed marketplace operations
 type MarketplaceHandler struct {
 	Service *services.MarketplaceService
 	Sockets *socket.Manager
 }
 
+// NewMarketplaceHandler creates a new marketplace handler instance
 func NewMarketplaceHandler(svc *services.MarketplaceService, sockets *socket.Manager) *MarketplaceHandler {
 	return &MarketplaceHandler{Service: svc, Sockets: sockets}
 }
 
+// RegisterRoutes attaches public and protected marketplace endpoints
 func (h *MarketplaceHandler) RegisterRoutes(public, protected *gin.RouterGroup) {
 	public.GET("/feeds", h.listFeeds)
 	public.GET("/feeds/popular", h.popularFeeds)
@@ -47,6 +50,7 @@ func (h *MarketplaceHandler) RegisterRoutes(public, protected *gin.RouterGroup) 
 	protected.POST("/test-feed", h.testFeed)
 }
 
+// listFeeds retrieves all public feeds with optional category filter
 func (h *MarketplaceHandler) listFeeds(c *gin.Context) {
 	category := c.Query("category")
 	ctx, cancel := contextWithTimeout(c)
@@ -59,6 +63,7 @@ func (h *MarketplaceHandler) listFeeds(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": feeds, "count": len(feeds)})
 }
 
+// popularFeeds retrieves feeds sorted by subscriber count with optional limit
 func (h *MarketplaceHandler) popularFeeds(c *gin.Context) {
 	limit := parseLimit(c.Query("limit"), 10)
 	ctx, cancel := contextWithTimeout(c)
@@ -71,6 +76,7 @@ func (h *MarketplaceHandler) popularFeeds(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": feeds})
 }
 
+// recentFeeds retrieves the most recently created feeds with optional limit
 func (h *MarketplaceHandler) recentFeeds(c *gin.Context) {
 	limit := parseLimit(c.Query("limit"), 10)
 	ctx, cancel := contextWithTimeout(c)
@@ -83,6 +89,7 @@ func (h *MarketplaceHandler) recentFeeds(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": feeds})
 }
 
+// searchFeeds searches feeds by name, description, or tags with optional category filter
 func (h *MarketplaceHandler) searchFeeds(c *gin.Context) {
 	q := c.Query("q")
 	category := c.Query("category")
@@ -96,6 +103,7 @@ func (h *MarketplaceHandler) searchFeeds(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": feeds, "count": len(feeds)})
 }
 
+// getFeed retrieves a single feed by ID
 func (h *MarketplaceHandler) getFeed(c *gin.Context) {
 	id := c.Param("id")
 	ctx, cancel := contextWithTimeout(c)
@@ -108,6 +116,7 @@ func (h *MarketplaceHandler) getFeed(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": feed})
 }
 
+// createFeed creates a new feed in the marketplace and auto-subscribes the creator
 func (h *MarketplaceHandler) createFeed(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	username := c.GetString("username")
@@ -175,6 +184,7 @@ func (h *MarketplaceHandler) createFeed(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"success": true, "data": created})
 }
 
+// updateFeed updates feed properties with authorization check
 func (h *MarketplaceHandler) updateFeed(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	idStr := c.Param("id")
@@ -207,6 +217,7 @@ func (h *MarketplaceHandler) updateFeed(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": updated})
 }
 
+// deleteFeed removes a feed from the marketplace with authorization check
 func (h *MarketplaceHandler) deleteFeed(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	idStr := c.Param("id")
@@ -229,6 +240,7 @@ func (h *MarketplaceHandler) deleteFeed(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Feed deleted"})
 }
 
+// myFeeds retrieves all feeds owned by the authenticated user
 func (h *MarketplaceHandler) myFeeds(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	ctx, cancel := contextWithTimeout(c)
@@ -241,6 +253,7 @@ func (h *MarketplaceHandler) myFeeds(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": feeds, "count": len(feeds)})
 }
 
+// subscribe creates a subscription to a feed and initiates WebSocket connection
 func (h *MarketplaceHandler) subscribe(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	feedID := c.Param("feedId")
@@ -258,6 +271,7 @@ func (h *MarketplaceHandler) subscribe(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Subscribed", "subscription": sub})
 }
 
+// unsubscribe deactivates a user's subscription to a feed
 func (h *MarketplaceHandler) unsubscribe(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	feedID := c.Param("feedId")
@@ -270,6 +284,7 @@ func (h *MarketplaceHandler) unsubscribe(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Unsubscribed"})
 }
 
+// subscriptions retrieves all subscriptions for the authenticated user
 func (h *MarketplaceHandler) subscriptions(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	ctx, cancel := contextWithTimeout(c)
@@ -282,6 +297,7 @@ func (h *MarketplaceHandler) subscriptions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": subs, "count": len(subs)})
 }
 
+// updateSubscription modifies subscription settings like custom prompts
 func (h *MarketplaceHandler) updateSubscription(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	feedID := c.Param("feedId")
@@ -299,6 +315,7 @@ func (h *MarketplaceHandler) updateSubscription(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Subscription updated"})
 }
 
+// submitFeedData allows feed owners to broadcast data to subscribers via WebSocket
 func (h *MarketplaceHandler) submitFeedData(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	feedID := c.Param("feedId")
@@ -336,6 +353,7 @@ func (h *MarketplaceHandler) submitFeedData(c *gin.Context) {
 	})
 }
 
+// updatePrompt updates the default AI prompt for a feed with authorization check
 func (h *MarketplaceHandler) updatePrompt(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	feedID := c.Param("id")
@@ -361,6 +379,7 @@ func (h *MarketplaceHandler) updatePrompt(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": updated})
 }
 
+// parseLimit parses a query parameter as an integer limit with fallback
 func parseLimit(raw string, fallback int) int {
 	if raw == "" {
 		return fallback
@@ -382,6 +401,7 @@ func sliceKeyValues(items []map[string]string) []models.KeyValue {
 	return out
 }
 
+// mapFromPairs converts key-value pairs array to a map
 func mapFromPairs(items []map[string]string) map[string]string {
 	out := map[string]string{}
 	for _, kv := range items {
@@ -392,6 +412,7 @@ func mapFromPairs(items []map[string]string) map[string]string {
 	return out
 }
 
+// filterMessages removes empty or whitespace-only strings from message array
 func filterMessages(messages []string) []string {
 	out := make([]string, 0, len(messages))
 	for _, msg := range messages {
@@ -404,6 +425,7 @@ func filterMessages(messages []string) []string {
 
 // ---- Feed connection testing (websocket-only minimal support) ----
 
+// testFeedPayload defines the request format for testing feed connections
 type testFeedPayload struct {
 	ConnectionType          string              `json:"connectionType"`
 	URL                     string              `json:"url"`
@@ -414,7 +436,7 @@ type testFeedPayload struct {
 	ConnectionMessageFormat string              `json:"connectionMessageFormat"`
 }
 
-// createFeedPayload matches the frontend register form.
+// createFeedPayload matches the frontend feed creation form structure
 type createFeedPayload struct {
 	Name                    string              `json:"name"`
 	Description             string              `json:"description"`
@@ -449,6 +471,7 @@ type createFeedPayload struct {
 	AIAnalysisEnabled bool     `json:"aiAnalysisEnabled"`
 }
 
+// testFeed validates feed connectivity by attempting a WebSocket connection
 func (h *MarketplaceHandler) testFeed(c *gin.Context) {
 	var payload testFeedPayload
 	if err := c.ShouldBindJSON(&payload); err != nil || payload.URL == "" {
@@ -470,6 +493,7 @@ func (h *MarketplaceHandler) testFeed(c *gin.Context) {
 	}
 }
 
+// dialWebSocket attempts to connect to a WebSocket URL with query params and headers
 func dialWebSocket(p testFeedPayload) (bool, error) {
 	dialer := websocket.Dialer{}
 	u, err := url.Parse(p.URL)

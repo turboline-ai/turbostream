@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,10 +21,11 @@ type FeedContext struct {
 	UpdatedAt time.Time                `json:"updatedAt"`
 }
 
-// LLMService provides LLM capabilities using Azure OpenAI
+// LLMService provides LLM capabilities with multi-provider support (BYOM)
 type LLMService struct {
 	cfg         config.Config
-	azureOpenAI *AzureOpenAI
+	providers   map[string]LLMProvider
+	defaultProv string
 
 	// Feed context storage
 	contextMu    sync.RWMutex
@@ -31,37 +33,119 @@ type LLMService struct {
 	contextLimit int
 }
 
-// NewLLMService creates a new LLM service with Azure OpenAI
+// NewLLMService creates a new LLM service with multi-provider support
 func NewLLMService(cfg config.Config) (*LLMService, error) {
 	svc := &LLMService{
 		cfg:          cfg,
+		providers:    make(map[string]LLMProvider),
+		defaultProv:  cfg.DefaultAIProvider,
 		feedContexts: make(map[string]*FeedContext),
 		contextLimit: cfg.LLMContextLimit,
 	}
 
-	// Initialize Azure OpenAI
-	svc.azureOpenAI = NewAzureOpenAI(cfg)
+	// Register all configured providers
 
-	if svc.azureOpenAI.Enabled() {
-		log.Printf("✓ Azure OpenAI initialized (endpoint: %s, deployment: %s)", cfg.AzureEndpoint, cfg.AzureDeployment)
+	// Azure OpenAI
+	azure := NewAzureOpenAI(cfg)
+	if azure.Enabled() {
+		svc.providers["azure-openai"] = azure
+		log.Printf("✓ Azure OpenAI enabled (endpoint: %s, deployment: %s)", cfg.AzureEndpoint, cfg.AzureDeployment)
+	}
+
+	// OpenAI
+	if cfg.OpenAIAPIKey != "" {
+		openai := NewOpenAIClient(cfg.OpenAIAPIKey, cfg.OpenAIModel)
+		if openai.Enabled() {
+			svc.providers["openai"] = openai
+			log.Printf("✓ OpenAI enabled (model: %s)", cfg.OpenAIModel)
+		}
+	}
+
+	// Anthropic (Claude)
+	if cfg.AnthropicAPIKey != "" {
+		anthropic := NewAnthropicClient(cfg.AnthropicAPIKey, cfg.AnthropicModel)
+		if anthropic.Enabled() {
+			svc.providers["anthropic"] = anthropic
+			log.Printf("✓ Anthropic enabled (model: %s)", cfg.AnthropicModel)
+		}
+	}
+
+	// Google Gemini
+	if cfg.GoogleAPIKey != "" {
+		gemini := NewGeminiClient(cfg.GoogleAPIKey, cfg.GoogleModel)
+		if gemini.Enabled() {
+			svc.providers["gemini"] = gemini
+			log.Printf("✓ Gemini enabled (model: %s)", cfg.GoogleModel)
+		}
+	}
+
+	// Mistral
+	if cfg.MistralAPIKey != "" {
+		mistral := NewMistralClient(cfg.MistralAPIKey, cfg.MistralModel)
+		if mistral.Enabled() {
+			svc.providers["mistral"] = mistral
+			log.Printf("✓ Mistral enabled (model: %s)", cfg.MistralModel)
+		}
+	}
+
+	// xAI (Grok)
+	if cfg.XAIAPIKey != "" {
+		grok := NewGrokClient(cfg.XAIAPIKey, cfg.XAIModel)
+		if grok.Enabled() {
+			svc.providers["grok"] = grok
+			log.Printf("✓ Grok enabled (model: %s)", cfg.XAIModel)
+		}
+	}
+
+	if len(svc.providers) == 0 {
+		log.Printf("⚠ No LLM providers configured - AI features will be disabled")
 	} else {
-		log.Printf("⚠ Azure OpenAI not configured - AI features will be disabled")
+		log.Printf("✓ %d LLM provider(s) available: %v", len(svc.providers), svc.GetAvailableProviders())
 	}
 
 	return svc, nil
 }
 
-// Enabled returns true if Azure OpenAI is configured
+// Enabled returns true if at least one provider is configured
 func (s *LLMService) Enabled() bool {
-	return s.azureOpenAI.Enabled()
+	return len(s.providers) > 0
 }
 
-// GetAvailableProviders returns a list of configured providers
-func (s *LLMService) GetAvailableProviders() []string {
-	if s.azureOpenAI.Enabled() {
-		return []string{"azure-openai"}
+// GetProvider returns a provider by name, or the default/first available
+func (s *LLMService) GetProvider(name string) (LLMProvider, error) {
+	// If specific provider requested
+	if name != "" {
+		if p, ok := s.providers[name]; ok {
+			return p, nil
+		}
+		return nil, fmt.Errorf("provider '%s' not configured", name)
 	}
-	return []string{}
+
+	// Try default provider
+	if s.defaultProv != "" {
+		if p, ok := s.providers[s.defaultProv]; ok {
+			return p, nil
+		}
+	}
+
+	// Fall back to any available provider (prefer order)
+	preferOrder := []string{"azure-openai", "openai", "anthropic", "gemini", "mistral", "grok"}
+	for _, pref := range preferOrder {
+		if p, ok := s.providers[pref]; ok {
+			return p, nil
+		}
+	}
+
+	return nil, errors.New("no LLM providers available")
+}
+
+// GetAvailableProviders returns a list of configured provider names
+func (s *LLMService) GetAvailableProviders() []string {
+	names := make([]string, 0, len(s.providers))
+	for name := range s.providers {
+		names = append(names, name)
+	}
+	return names
 }
 
 // AddFeedData adds streaming feed data to the context
@@ -148,8 +232,10 @@ type QueryResponse struct {
 func (s *LLMService) Query(ctx context.Context, req QueryRequest) (*QueryResponse, error) {
 	start := time.Now()
 
-	if !s.Enabled() {
-		return nil, errors.New("Azure OpenAI not configured")
+	// Get the appropriate provider
+	provider, err := s.GetProvider(req.Provider)
+	if err != nil {
+		return nil, err
 	}
 
 	// Get feed context
@@ -181,33 +267,35 @@ If the data doesn't contain information to answer the question, say so clearly.`
 
 Question: %s`, string(contextJSON), req.Question)
 
-	// Call Azure OpenAI
+	// Call the provider
 	messages := []ChatMessage{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userPrompt},
 	}
 
-	answer, tokensUsed, err := s.azureOpenAI.Chat(ctx, messages)
+	answer, tokensUsed, err := provider.Chat(ctx, messages)
 	if err != nil {
-		return nil, fmt.Errorf("azure openai error: %w", err)
+		return nil, fmt.Errorf("%s error: %w", provider.Name(), err)
 	}
 
 	return &QueryResponse{
 		Answer:     answer,
-		Provider:   "azure-openai",
+		Provider:   provider.Name(),
 		FeedID:     req.FeedID,
 		TokensUsed: tokensUsed,
 		Duration:   time.Since(start).Milliseconds(),
 	}, nil
 }
 
-// StreamQuery streams the LLM response token by token (falls back to non-streaming for now)
+// StreamQuery streams the LLM response token by token
 func (s *LLMService) StreamQuery(ctx context.Context, req QueryRequest, tokenChan chan<- string) (*QueryResponse, error) {
 	start := time.Now()
-	defer close(tokenChan)
 
-	if !s.Enabled() {
-		return nil, errors.New("Azure OpenAI not configured")
+	// Get the appropriate provider
+	provider, err := s.GetProvider(req.Provider)
+	if err != nil {
+		close(tokenChan)
+		return nil, err
 	}
 
 	// Get feed context
@@ -215,6 +303,7 @@ func (s *LLMService) StreamQuery(ctx context.Context, req QueryRequest, tokenCha
 	if feedCtx == nil || len(feedCtx.Entries) == 0 {
 		msg := "No data available for this feed yet. Please wait for streaming data to arrive."
 		tokenChan <- msg
+		close(tokenChan)
 		return &QueryResponse{
 			Answer:   msg,
 			Provider: "none",
@@ -238,26 +327,33 @@ Answer questions based ONLY on the provided JSON data context. Be concise and ac
 
 Question: %s`, string(contextJSON), req.Question)
 
-	// Call Azure OpenAI (non-streaming, then send complete response)
+	// Build messages
 	messages := []ChatMessage{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userPrompt},
 	}
 
-	answer, tokensUsed, err := s.azureOpenAI.Chat(ctx, messages)
-	if err != nil {
-		return nil, fmt.Errorf("azure openai error: %w", err)
-	}
+	// Collect streamed tokens for the full answer
+	var fullAnswer strings.Builder
+	internalChan := make(chan string, 100)
 
-	// Send the complete response as one token
-	tokenChan <- answer
+	// Start streaming from provider
+	go func() {
+		_, _ = provider.StreamChat(ctx, messages, internalChan)
+	}()
+
+	// Forward tokens and collect full answer
+	for token := range internalChan {
+		fullAnswer.WriteString(token)
+		tokenChan <- token
+	}
+	close(tokenChan)
 
 	return &QueryResponse{
-		Answer:     answer,
-		Provider:   "azure-openai",
-		FeedID:     req.FeedID,
-		TokensUsed: tokensUsed,
-		Duration:   time.Since(start).Milliseconds(),
+		Answer:   fullAnswer.String(),
+		Provider: provider.Name(),
+		FeedID:   req.FeedID,
+		Duration: time.Since(start).Milliseconds(),
 	}, nil
 }
 

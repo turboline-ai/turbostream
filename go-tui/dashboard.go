@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -10,17 +9,6 @@ import (
 
 // Dashboard panel styles
 var (
-	panelBorderStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(darkCyanColor).
-				Padding(0, 1)
-
-	panelTitleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(brightCyanColor).
-			Background(darkGrayColor).
-			Padding(0, 1)
-
 	summaryBarStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(whiteColor).
@@ -46,13 +34,6 @@ var (
 	badValueStyle = lipgloss.NewStyle().
 			Foreground(redColor).
 			Bold(true)
-
-	chartBarStyle = lipgloss.NewStyle().
-			Foreground(cyanColor)
-
-	chartLabelStyle = lipgloss.NewStyle().
-			Foreground(dimCyanColor).
-			Width(8)
 
 	// Sparkline character styles
 	sparklineChars = []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
@@ -163,6 +144,10 @@ func humanizeBytes(bytes uint64) string {
 
 // humanizeBytesInt converts int bytes to human-readable format
 func humanizeBytesInt(bytes int) string {
+	// Prevent integer overflow: handle negative values
+	if bytes < 0 {
+		return "0 B"
+	}
 	return humanizeBytes(uint64(bytes))
 }
 
@@ -176,35 +161,6 @@ func humanizeDuration(seconds float64) string {
 		return fmt.Sprintf("%.1fh", seconds/3600)
 	}
 	return fmt.Sprintf("%.1fd", seconds/86400)
-}
-
-// formatRate formats a rate value
-func formatRate(rate float64, unit string) string {
-	if rate < 0.01 {
-		return fmt.Sprintf("0 %s", unit)
-	} else if rate < 10 {
-		return fmt.Sprintf("%.2f %s", rate, unit)
-	} else if rate < 100 {
-		return fmt.Sprintf("%.1f %s", rate, unit)
-	}
-	return fmt.Sprintf("%.0f %s", rate, unit)
-}
-
-// renderBar renders a horizontal bar chart bar
-func renderBar(value, maxValue uint64, width int) string {
-	if maxValue == 0 || width <= 0 {
-		return strings.Repeat("░", width)
-	}
-
-	filledWidth := int(float64(value) / float64(maxValue) * float64(width))
-	if filledWidth > width {
-		filledWidth = width
-	}
-
-	filled := strings.Repeat("█", filledWidth)
-	empty := strings.Repeat("░", width-filledWidth)
-
-	return chartBarStyle.Render(filled) + lipgloss.NewStyle().Foreground(grayColor).Render(empty)
 }
 
 // colorByThreshold returns appropriate style based on thresholds
@@ -371,16 +327,6 @@ func renderNoFeeds(width int) string {
 
 // Sidebar styles
 var (
-	sidebarStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(darkCyanColor).
-			Padding(0, 1)
-
-	sidebarTitleStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(brightCyanColor).
-				MarginBottom(1)
-
 	feedItemSelectedStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#000000")).
 				Background(cyanColor).
@@ -473,25 +419,6 @@ func renderFeedSidebar(dm DashboardMetrics, width, maxHeight int) string {
 
 	content := strings.Join(lines, "\n")
 	return renderPanel("Feeds", content, width)
-}
-
-// renderFeedSelector is kept for backwards compatibility but not used in new layout
-func renderFeedSelector(dm DashboardMetrics, width int) string {
-	if len(dm.Feeds) == 0 {
-		return ""
-	}
-
-	fm := dm.Feeds[dm.SelectedIdx]
-
-	// Status indicator
-	statusIcon := "●"
-	statusStyle := goodValueStyle
-	if !fm.WSConnected {
-		statusStyle = badValueStyle
-	}
-
-	title := fmt.Sprintf("Observability Dashboard  %s", statusStyle.Render(statusIcon))
-	return lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render(title)
 }
 
 // renderSummaryBar renders the top summary bar
@@ -729,15 +656,3 @@ func renderContextBar(percent float64, width int) string {
 	return "  [" + bar.String() + "]"
 }
 
-// truncateString truncates a string to a maximum length
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-1] + "…"
-}
-
-// clamp clamps a value between min and max
-func clamp(value, min, max float64) float64 {
-	return math.Max(min, math.Min(max, value))
-}

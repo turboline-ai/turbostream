@@ -54,46 +54,10 @@ var (
 			MarginBottom(1)
 
 	// Content styles
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(cyanColor).
-			MarginBottom(1)
-
-	headerStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(brightCyanColor).
-			Background(darkGrayColor).
-			Padding(0, 2).
-			MarginBottom(1)
-
 	boxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(darkCyanColor).
 			Padding(1, 2)
-
-	selectedItemStyle = lipgloss.NewStyle().
-				Foreground(brightCyanColor).
-				Bold(true)
-
-	normalItemStyle = lipgloss.NewStyle().
-			Foreground(grayColor)
-
-	statusBarStyle = lipgloss.NewStyle().
-			Foreground(dimCyanColor).
-			Background(darkGrayColor).
-			Padding(0, 1)
-
-	errorStyle = lipgloss.NewStyle().
-			Foreground(redColor).
-			Bold(true)
-
-	successStyle = lipgloss.NewStyle().
-			Foreground(greenColor).
-			Bold(true)
-
-	labelStyle = lipgloss.NewStyle().
-			Foreground(cyanColor).
-			Bold(true)
 
 	helpStyle = lipgloss.NewStyle().
 			Foreground(dimCyanColor)
@@ -104,40 +68,6 @@ var (
 			Padding(1, 2).
 			Width(100)
 )
-
-// truncateStyledText truncates a string (potentially with ANSI codes) to a maximum visual width
-func truncateStyledText(s string, maxWidth int) string {
-	if maxWidth <= 0 {
-		return ""
-	}
-	// Strip ANSI codes and get plain text
-	plainText := lipgloss.NewStyle().Render(s)
-	visWidth := lipgloss.Width(plainText)
-
-	if visWidth <= maxWidth {
-		return s
-	}
-
-	// Need to truncate - strip all styles and truncate plain text
-	// This is a simplified approach that works for most cases
-	runes := []rune(s)
-	result := ""
-	currentWidth := 0
-
-	for _, r := range runes {
-		// Skip ANSI escape sequences
-		if r == '\x1b' {
-			continue
-		}
-		charWidth := 1
-		if currentWidth+charWidth > maxWidth-3 { // -3 for "..."
-			return result + "..."
-		}
-		result += string(r)
-		currentWidth += charWidth
-	}
-	return result
-}
 
 // renderBoxWithTitle renders a box with the title embedded in the top border
 func renderBoxWithTitle(title, content string, width, height int, borderColor lipgloss.Color, titleColor lipgloss.Color) string {
@@ -182,12 +112,11 @@ func renderBoxWithTitle(title, content string, width, height int, borderColor li
 		// Truncate if too long - use simple rune-based truncation
 		if lineLen > innerWidth {
 			// Strip ANSI and truncate
-			runes := []rune(line)
 			truncated := ""
 			currentWidth := 0
 			inEscape := false
 
-			for _, r := range runes {
+			for _, r := range line {
 				if r == '\x1b' {
 					inEscape = true
 					truncated += string(r)
@@ -458,7 +387,7 @@ func main() {
 
 	m := newModel(client, backendURL, wsURL, token, email)
 	p := tea.NewProgram(m, tea.WithAltScreen())
-	if err := p.Start(); err != nil {
+	if _, err := p.Run(); err != nil {
 		fmt.Println("failed to start TUI:", err)
 		os.Exit(1)
 	}
@@ -1131,12 +1060,12 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "[":
 		// Scroll AI viewport up (My Feeds and Dashboard)
 		if (m.screen == screenFeeds || m.screen == screenDashboard) && !m.aiFocused && m.aiViewportReady {
-			m.aiViewport.LineUp(3)
+			m.aiViewport.ScrollUp(3)
 		}
 	case "]":
 		// Scroll AI viewport down (My Feeds and Dashboard)
 		if (m.screen == screenFeeds || m.screen == screenDashboard) && !m.aiFocused && m.aiViewportReady {
-			m.aiViewport.LineDown(3)
+			m.aiViewport.ScrollDown(3)
 		}
 	case "r":
 		// Force reconnect - close existing connection if any and reconnect
@@ -1989,14 +1918,8 @@ LAYOUT
 KEYBOARD SHORTCUTS
 ------------------
   Up/Down         Select different feed in sidebar
-  r               Reconnect WebSocket
-  i               Change AI interval (5s/10s/30s/60s)
-  m               Toggle AI auto/manual mode
-  p               Custom AI prompt
-  [/]             Scroll AI output up/down
 
-The Dashboard displays real-time streaming data from your subscribed 
-feeds. Press 'i' to cycle through AI analysis intervals.`,
+The Dashboard displays real-time streaming data from your subscribed feeds.`,
 		},
 		{
 			title: "Register Feed",

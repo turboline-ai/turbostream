@@ -10,14 +10,17 @@ import (
 	"github.com/turboline-ai/turbostream/go-backend/internal/services"
 )
 
+// SettingsHandler handles HTTP requests for application settings and categories
 type SettingsHandler struct {
 	Service *services.SettingsService
 }
 
+// NewSettingsHandler creates a new settings handler instance
 func NewSettingsHandler(svc *services.SettingsService) *SettingsHandler {
 	return &SettingsHandler{Service: svc}
 }
 
+// RegisterRoutes attaches settings endpoints for categories and user preferences
 func (h *SettingsHandler) RegisterRoutes(r *gin.RouterGroup) {
 	r.GET("/categories", h.categories)
 	r.GET("/categories/:key", h.category)
@@ -30,6 +33,7 @@ func (h *SettingsHandler) RegisterRoutes(r *gin.RouterGroup) {
 	r.GET("/user/categories/check/:key", h.checkCategoryKey)
 }
 
+// categories retrieves all available feed categories
 func (h *SettingsHandler) categories(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
@@ -41,6 +45,7 @@ func (h *SettingsHandler) categories(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "categories": cats})
 }
 
+// category retrieves a single category by its key
 func (h *SettingsHandler) category(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
@@ -57,6 +62,7 @@ func (h *SettingsHandler) category(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": cat})
 }
 
+// allSettings returns all settings (currently just categories for backend parity)
 func (h *SettingsHandler) allSettings(c *gin.Context) {
 	// For parity with the TS backend, this simply returns categories for now.
 	h.categories(c)
@@ -64,10 +70,12 @@ func (h *SettingsHandler) allSettings(c *gin.Context) {
 
 // ---- User categories stubs (no persistence yet) ----
 
+// userCategories retrieves user-specific categories (stub implementation)
 func (h *SettingsHandler) userCategories(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": []interface{}{}})
 }
 
+// createUserCategory creates a new user-specific category (stub implementation)
 func (h *SettingsHandler) createUserCategory(c *gin.Context) {
 	var body struct {
 		Label string `json:"label"`
@@ -92,6 +100,7 @@ func (h *SettingsHandler) createUserCategory(c *gin.Context) {
 	})
 }
 
+// updateUserCategory updates a user-specific category (stub implementation)
 func (h *SettingsHandler) updateUserCategory(c *gin.Context) {
 	key := c.Param("key")
 	var body map[string]interface{}
@@ -111,10 +120,12 @@ func (h *SettingsHandler) updateUserCategory(c *gin.Context) {
 	})
 }
 
+// deleteUserCategory removes a user-specific category (stub implementation)
 func (h *SettingsHandler) deleteUserCategory(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "deleted"})
 }
 
+// checkCategoryKey validates if a category key is available for use (stub implementation)
 func (h *SettingsHandler) checkCategoryKey(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": map[string]interface{}{"available": true}})
 }

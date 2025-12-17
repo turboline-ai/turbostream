@@ -13,6 +13,7 @@ Thumbs.db
 *.out
 go-tui/tui
 go-tui/turbostream
+go-tui/go-tui
 go-tui/.cache/
 go-backend/server
 go-backend/.cache/

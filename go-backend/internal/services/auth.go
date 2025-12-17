@@ -21,24 +21,29 @@ import (
 	"github.com/turboline-ai/turbostream/go-backend/internal/models"
 )
 
+// AuthService handles user authentication, sessions, and 2FA
 type AuthService struct {
 	cfg    config.Config
 	client *mongo.Client
 	db     *mongo.Database
 }
 
+// NewAuthService creates a new authentication service instance
 func NewAuthService(cfg config.Config, client *mongo.Client, db *mongo.Database) *AuthService {
 	return &AuthService{cfg: cfg, client: client, db: db}
 }
 
+// users returns the MongoDB users collection
 func (s *AuthService) users() *mongo.Collection {
 	return s.db.Collection("users")
 }
 
+// sessions returns the MongoDB sessions collection
 func (s *AuthService) sessions() *mongo.Collection {
 	return s.db.Collection("sessions")
 }
 
+// loginActivity returns the MongoDB login activity collection
 func (s *AuthService) loginActivity() *mongo.Collection {
 	return s.db.Collection("login_activity")
 }
@@ -88,7 +93,7 @@ func (s *AuthService) Register(ctx context.Context, email, password, name string
 	return token, user, err
 }
 
-// Login authenticates a user, validating password and optional 2FA.
+// Login authenticates a user with email/password and optional 2FA, returns JWT token
 func (s *AuthService) Login(ctx context.Context, email, password, totpToken string, ip, ua string) (string, models.User, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	var user models.User
@@ -128,6 +133,7 @@ func (s *AuthService) Login(ctx context.Context, email, password, totpToken stri
 	return token, user, nil
 }
 
+// generateToken creates a JWT token for the authenticated user with 7-day expiration
 func (s *AuthService) generateToken(user models.User) (string, error) {
 	claims := jwt.MapClaims{
 		"userId":   user.ID.Hex(),
@@ -140,6 +146,7 @@ func (s *AuthService) generateToken(user models.User) (string, error) {
 	return token.SignedString([]byte(s.cfg.JWTSecret))
 }
 
+// ParseToken validates and parses a JWT token, returning the claims
 func (s *AuthService) ParseToken(tokenStr string) (jwt.MapClaims, error) {
 	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -156,7 +163,7 @@ func (s *AuthService) ParseToken(tokenStr string) (jwt.MapClaims, error) {
 	return nil, errors.New("invalid token payload")
 }
 
-// ChangePassword updates a user's password after verifying the current password.
+// ChangePassword updates a user's password after verifying the current password
 func (s *AuthService) ChangePassword(ctx context.Context, userID primitive.ObjectID, current, next string) error {
 	var user models.User
 	if err := s.users().FindOne(ctx, bson.M{"_id": userID}).Decode(&user); err != nil {
@@ -176,8 +183,7 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID primitive.Objec
 	return err
 }
 
-// GetUser returns a user by ID without password. It also handles the monthly reset
-// of token usage and ensures the user's limit is up-to-date with the current config.
+// GetUser retrieves a user by ID, handles monthly token quota reset, and removes password from response
 func (s *AuthService) GetUser(ctx context.Context, id primitive.ObjectID) (*models.User, error) {
 	var user models.User
 	if err := s.users().FindOne(ctx, bson.M{"_id": id}).Decode(&user); err != nil {
@@ -227,7 +233,7 @@ func (s *AuthService) GetUser(ctx context.Context, id primitive.ObjectID) (*mode
 	return &user, nil
 }
 
-// UpdateTokenUsage increments the token usage for a user.
+// UpdateTokenUsage increments the token usage counter for a user's monthly quota
 func (s *AuthService) UpdateTokenUsage(ctx context.Context, userID primitive.ObjectID, tokensUsed int) error {
 	_, err := s.users().UpdateByID(ctx, userID, bson.M{
 		"$inc": bson.M{"tokenUsage.tokensUsed": tokensUsed},
@@ -235,7 +241,7 @@ func (s *AuthService) UpdateTokenUsage(ctx context.Context, userID primitive.Obj
 	return err
 }
 
-// TwoFactorSetup generates a secret and QR code data URL.
+// TwoFactorSetup generates a TOTP secret and QR code for 2FA enrollment
 func (s *AuthService) TwoFactorSetup(email string) (secret, qrData, manualKey string, err error) {
 	key, err := totp.Generate(totp.GenerateOpts{
 		Issuer:      "RealtimeCrypto",
@@ -251,7 +257,7 @@ func (s *AuthService) TwoFactorSetup(email string) (secret, qrData, manualKey st
 	return key.Secret(), "data:image/png;base64," + base64.StdEncoding.EncodeToString(png), key.Secret(), nil
 }
 
-// EnableTwoFactor stores the TOTP secret after verifying a token and returns backup codes.
+// EnableTwoFactor activates 2FA for a user after validating TOTP token and generates backup codes
 func (s *AuthService) EnableTwoFactor(ctx context.Context, userID primitive.ObjectID, secret, token string) ([]string, error) {
 	if ok := totp.Validate(token, secret); !ok {
 		return nil, errors.New("invalid verification code")
@@ -277,6 +283,7 @@ func (s *AuthService) EnableTwoFactor(ctx context.Context, userID primitive.Obje
 	return backup, nil
 }
 
+// DisableTwoFactor removes 2FA from a user's account and clears backup codes
 func (s *AuthService) DisableTwoFactor(ctx context.Context, userID primitive.ObjectID) error {
 	_, err := s.users().UpdateByID(ctx, userID, bson.M{
 		"$set": bson.M{
@@ -288,6 +295,7 @@ func (s *AuthService) DisableTwoFactor(ctx context.Context, userID primitive.Obj
 	return err
 }
 
+// GetBackupCodeStatus returns the number of unused backup codes for a user
 func (s *AuthService) GetBackupCodeStatus(ctx context.Context, userID primitive.ObjectID) (int, error) {
 	var user models.User
 	if err := s.users().FindOne(ctx, bson.M{"_id": userID}).Decode(&user); err != nil {
@@ -302,6 +310,7 @@ func (s *AuthService) GetBackupCodeStatus(ctx context.Context, userID primitive.
 	return count, nil
 }
 
+// RegenerateBackupCodes creates a new set of backup codes after TOTP verification
 func (s *AuthService) RegenerateBackupCodes(ctx context.Context, userID primitive.ObjectID, totpCode string) ([]string, error) {
 	var user models.User
 	if err := s.users().FindOne(ctx, bson.M{"_id": userID}).Decode(&user); err != nil {
@@ -319,6 +328,7 @@ func (s *AuthService) RegenerateBackupCodes(ctx context.Context, userID primitiv
 	return backup, err
 }
 
+// GetSessions retrieves all active sessions for a user
 func (s *AuthService) GetSessions(ctx context.Context, userID primitive.ObjectID) ([]models.UserSession, error) {
 	cursor, err := s.sessions().Find(ctx, bson.M{"userId": userID})
 	if err != nil {
@@ -332,11 +342,13 @@ func (s *AuthService) GetSessions(ctx context.Context, userID primitive.ObjectID
 	return sessions, nil
 }
 
+// TerminateSession deactivates a specific user session
 func (s *AuthService) TerminateSession(ctx context.Context, userID primitive.ObjectID, sessionID primitive.ObjectID) error {
 	_, err := s.sessions().UpdateOne(ctx, bson.M{"_id": sessionID, "userId": userID}, bson.M{"$set": bson.M{"isActive": false}})
 	return err
 }
 
+// TerminateOtherSessions deactivates all user sessions except the current one
 func (s *AuthService) TerminateOtherSessions(ctx context.Context, userID, currentSessionID primitive.ObjectID) (int64, error) {
 	res, err := s.sessions().UpdateMany(ctx, bson.M{"userId": userID, "_id": bson.M{"$ne": currentSessionID}}, bson.M{"$set": bson.M{"isActive": false}})
 	if err != nil {
@@ -345,6 +357,7 @@ func (s *AuthService) TerminateOtherSessions(ctx context.Context, userID, curren
 	return res.ModifiedCount, nil
 }
 
+// GetLoginActivity retrieves recent login attempts for a user with optional limit
 func (s *AuthService) GetLoginActivity(ctx context.Context, userID primitive.ObjectID, limit int64) ([]models.LoginActivity, error) {
 	opts := bson.D{{Key: "$sort", Value: bson.M{"timestamp": -1}}, {Key: "$limit", Value: limit}}
 	match := bson.D{{Key: "$match", Value: bson.M{"userId": userID}}}
@@ -361,6 +374,7 @@ func (s *AuthService) GetLoginActivity(ctx context.Context, userID primitive.Obj
 	return activities, nil
 }
 
+// createSession records a new user session with device and location info
 func (s *AuthService) createSession(ctx context.Context, userID primitive.ObjectID, ua, ip string) error {
 	session := models.UserSession{
 		UserID:       userID,
@@ -377,6 +391,7 @@ func (s *AuthService) createSession(ctx context.Context, userID primitive.Object
 	return err
 }
 
+// verifyTotpOrBackup validates a 2FA code using either TOTP or backup codes
 func (s *AuthService) verifyTotpOrBackup(ctx context.Context, user models.User, code string) (bool, error) {
 	if code == "" {
 		return false, errors.New("verification code required")
@@ -395,6 +410,7 @@ func (s *AuthService) verifyTotpOrBackup(ctx context.Context, user models.User, 
 	return false, nil
 }
 
+// generateBackupCodes creates 10 random backup codes for 2FA recovery
 func generateBackupCodes() []string {
 	const count = 10
 	codes := make([]string, 0, count)
