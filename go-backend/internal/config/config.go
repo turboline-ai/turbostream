@@ -44,6 +44,14 @@ type Config struct {
 	GoogleAPIKey string
 	GoogleModel  string
 
+	// Mistral
+	MistralAPIKey string
+	MistralModel  string
+
+	// xAI (Grok)
+	XAIAPIKey string
+	XAIModel  string
+
 	// Ollama (local)
 	OllamaBaseURL string
 	OllamaModel   string
@@ -91,7 +99,11 @@ func Load() Config {
 		AnthropicAPIKey: getEnv("ANTHROPIC_API_KEY", ""),
 		AnthropicModel:  getEnv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022"),
 		GoogleAPIKey:    getEnv("GOOGLE_API_KEY", ""),
-		GoogleModel:     getEnv("GOOGLE_MODEL", "gemini-1.5-pro"),
+		GoogleModel:     getEnv("GOOGLE_MODEL", "gemini-1.5-flash"),
+		MistralAPIKey:   getEnv("MISTRAL_API_KEY", ""),
+		MistralModel:    getEnv("MISTRAL_MODEL", "mistral-large-latest"),
+		XAIAPIKey:       getEnv("XAI_API_KEY", ""),
+		XAIModel:        getEnv("XAI_MODEL", "grok-beta"),
 		OllamaBaseURL:   getEnv("OLLAMA_BASE_URL", "http://localhost:11434"),
 		OllamaModel:     getEnv("OLLAMA_MODEL", "llama3.2"),
 
