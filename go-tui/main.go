@@ -270,6 +270,10 @@ type (
 		Data      string
 		Time      time.Time
 	}
+	packetDroppedMsg struct {
+		FeedID string
+		Reason string
+	}
 	tokenUsageUpdateMsg struct {
 		Usage *api.TokenUsage
 	}
@@ -344,21 +348,24 @@ type model struct {
 	feedSystemPrompt textinput.Model
 	feedFormFocus    int
 
-	// AI Analysis panel
-	aiPrompt        textinput.Model
-	aiAutoMode      bool            // true = auto query at interval, false = manual
-	aiInterval      int             // seconds between auto queries (5, 10, 30, 60)
-	aiIntervalIdx   int             // index into interval options
-	aiResponse      string          // current AI response (for streaming)
-	aiOutputHistory []aiOutputEntry // history of AI outputs (last 10)
-	aiLoading       bool            // whether AI query is in progress
-	aiLastQuery     time.Time       // last query time
-	aiFocused       bool            // whether AI panel is focused for editing
-	aiRequestID     string          // track current request
-	aiStartTime     time.Time       // when the current request started
-	aiFirstToken    time.Time       // when first token was received (for TTFT)
-	aiViewport      viewport.Model  // scrollable viewport for AI output
-	aiViewportReady bool            // whether viewport is initialized
+	// AI Analysis panel (per-feed state)
+	aiPrompts         map[string]textinput.Model // feedID -> prompt input (per-feed prompts)
+	aiAutoMode        bool                       // true = auto query at interval, false = manual
+	aiInterval        int                        // seconds between auto queries (5, 10, 30, 60)
+	aiIntervalIdx     int                        // index into interval options
+	aiResponses       map[string]string          // feedID -> current AI response (for streaming)
+	aiOutputHistories map[string][]aiOutputEntry // feedID -> history of AI outputs (last 10)
+	aiLoading         map[string]bool            // feedID -> whether AI query is in progress
+	aiPaused          map[string]bool            // feedID -> whether AI is paused (won't send new queries)
+	aiLastQuery       time.Time                  // last query time
+	aiFocused         bool                       // whether AI panel is focused for editing
+	aiRequestID       string                     // track current request (for selected feed display)
+	aiRequestFeedID   string                     // track which feed the current request is for (for selected feed)
+	aiActiveRequests  map[string]string          // requestID -> feedID (tracks ALL active concurrent requests)
+	aiStartTimes      map[string]time.Time       // feedID -> when request started (for concurrent tracking)
+	aiFirstTokens     map[string]time.Time       // feedID -> when first token was received (for TTFT per feed)
+	aiViewport        viewport.Model             // scrollable viewport for AI output
+	aiViewportReady   bool                       // whether viewport is initialized
 
 	// Observability dashboard
 	metricsCollector      *MetricsCollector
@@ -443,13 +450,6 @@ func newModel(client *api.Client, backendURL, wsURL, token, presetEmail string) 
 	feedSystemPrompt.Placeholder = ""
 	feedSystemPrompt.CharLimit = 2000
 
-	// AI prompt input
-	aiPrompt := textinput.New()
-	aiPrompt.Placeholder = "Ask about the streaming data..."
-	aiPrompt.CharLimit = 500
-	aiPrompt.Width = 50
-	aiPrompt.Prompt = "" // Remove default > prefix since we add our own
-
 	return model{
 		backendURL:       backendURL,
 		wsURL:            wsURL,
@@ -474,11 +474,17 @@ func newModel(client *api.Client, backendURL, wsURL, token, presetEmail string) 
 		feedSystemPrompt: feedSystemPrompt,
 		feedFormFocus:    0,
 		// AI defaults
-		aiPrompt:      aiPrompt,
-		aiAutoMode:    false,
-		aiInterval:    10,
-		aiIntervalIdx: 1, // 10 seconds default
-		aiResponse:    "",
+		aiPrompts:         make(map[string]textinput.Model), // per-feed prompts
+		aiAutoMode:        false,
+		aiInterval:        10,
+		aiIntervalIdx:     1, // 10 seconds default
+		aiResponses:       make(map[string]string),
+		aiOutputHistories: make(map[string][]aiOutputEntry),
+		aiLoading:         make(map[string]bool),
+		aiPaused:          make(map[string]bool),      // per-feed pause state
+		aiActiveRequests:  make(map[string]string),    // requestID -> feedID for concurrent tracking
+		aiStartTimes:      make(map[string]time.Time), // feedID -> start time
+		aiFirstTokens:     make(map[string]time.Time), // feedID -> first token time
 		// Dashboard
 		metricsCollector:      NewMetricsCollector(),
 		dashboardSelectedFeed: 0,
@@ -640,7 +646,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		entries := m.feedEntries[msg.FeedID]
 		entries = append([]feedEntry{{FeedID: msg.FeedID, FeedName: msg.FeedName, Event: msg.EventName, Data: msg.Data, Time: msg.Time}}, entries...)
+
+		// Track evictions when context buffer overflows
 		if len(entries) > 50 {
+			evictedCount := len(entries) - 50
+			m.metricsCollector.RecordContextEviction(msg.FeedID, evictedCount)
 			entries = entries[:50]
 		}
 		m.feedEntries[msg.FeedID] = entries
@@ -652,6 +662,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.metricsCollector.RecordCacheStats(msg.FeedID, len(entries), cacheBytes, 0)
 
+		return m, m.nextWSListen()
+
+	case packetDroppedMsg:
+		// Record packet loss when message parsing fails
+		m.metricsCollector.RecordPacketLoss(msg.FeedID, msg.Reason)
 		return m, m.nextWSListen()
 
 	case dashboardTickMsg:
@@ -709,85 +724,131 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, loadFeedsCmd(m.client)
 
 	case aiResponseMsg:
-		m.aiLoading = false
+		// Look up which feed this response belongs to using the request ID
+		feedID, exists := m.aiActiveRequests[msg.RequestID]
+		if !exists {
+			// Fallback to old behavior for backwards compatibility
+			feedID = m.aiRequestFeedID
+			if feedID == "" && m.selectedFeed != nil {
+				feedID = m.selectedFeed.ID
+			}
+		}
+
+		// Clean up the active request tracking
+		delete(m.aiActiveRequests, msg.RequestID)
+
+		m.aiLoading[feedID] = false
 		if msg.Err != nil {
-			m.aiResponse = "Error: " + msg.Err.Error()
-			// Add error to history
-			m.aiOutputHistory = append(m.aiOutputHistory, aiOutputEntry{
+			m.aiResponses[feedID] = "Error: " + msg.Err.Error()
+			// Add error to history for this feed
+			history := m.aiOutputHistories[feedID]
+			history = append(history, aiOutputEntry{
 				Response:  "Error: " + msg.Err.Error(),
 				Timestamp: time.Now(),
 				Provider:  "error",
 				Duration:  0,
 			})
 			// Keep only last 10 outputs
-			if len(m.aiOutputHistory) > 10 {
-				m.aiOutputHistory = m.aiOutputHistory[len(m.aiOutputHistory)-10:]
+			if len(history) > 10 {
+				history = history[len(history)-10:]
 			}
+			m.aiOutputHistories[feedID] = history
 			// Record LLM error in metrics
-			if m.selectedFeed != nil {
-				m.metricsCollector.RecordLLMRequest(m.selectedFeed.ID, 0, 0, 0, 0, 0, true)
+			if feedID != "" {
+				m.metricsCollector.RecordLLMRequest(feedID, 0, 0, 0, 0, 0, true)
 			}
 			return m, m.nextWSListen()
 		}
-		if msg.RequestID == m.aiRequestID {
-			m.aiResponse = msg.Answer
-			m.statusMessage = fmt.Sprintf("AI response received (%s, %dms)", msg.Provider, msg.Duration)
 
-			// Add to output history
-			m.aiOutputHistory = append(m.aiOutputHistory, aiOutputEntry{
-				Response:  msg.Answer,
-				Timestamp: time.Now(),
-				Provider:  msg.Provider,
-				Duration:  msg.Duration,
-			})
-			// Keep only last 10 outputs
-			if len(m.aiOutputHistory) > 10 {
-				m.aiOutputHistory = m.aiOutputHistory[len(m.aiOutputHistory)-10:]
+		// Process successful response
+		m.aiResponses[feedID] = msg.Answer
+		m.statusMessage = fmt.Sprintf("AI response received for feed (%s, %dms)", msg.Provider, msg.Duration)
+
+		// Add to output history for this feed
+		history := m.aiOutputHistories[feedID]
+		history = append(history, aiOutputEntry{
+			Response:  msg.Answer,
+			Timestamp: time.Now(),
+			Provider:  msg.Provider,
+			Duration:  msg.Duration,
+		})
+		// Keep only last 10 outputs
+		if len(history) > 10 {
+			history = history[len(history)-10:]
+		}
+		m.aiOutputHistories[feedID] = history
+
+		// Record LLM metrics (estimate tokens: 1 token ≈ 4 chars)
+		if feedID != "" {
+			// Get per-feed prompt for token estimation
+			promptValue := ""
+			if feedPrompt, ok := m.aiPrompts[feedID]; ok {
+				promptValue = feedPrompt.Value()
+			}
+			promptTokens := len(promptValue) / 4
+			responseTokens := len(msg.Answer) / 4
+			eventsInPrompt := len(m.feedEntries[feedID])
+
+			// Calculate TTFT and generation time using per-feed tracking
+			var ttftMs, genTimeMs float64
+			if firstToken, ok := m.aiFirstTokens[feedID]; ok && !firstToken.IsZero() {
+				if startTime, ok := m.aiStartTimes[feedID]; ok && !startTime.IsZero() {
+					ttftMs = float64(firstToken.Sub(startTime).Milliseconds())
+				}
+			}
+			if startTime, ok := m.aiStartTimes[feedID]; ok && !startTime.IsZero() {
+				genTimeMs = float64(time.Since(startTime).Milliseconds())
 			}
 
-			// Record LLM metrics (estimate tokens: 1 token ≈ 4 chars)
-			if m.selectedFeed != nil {
-				promptTokens := len(m.aiPrompt.Value()) / 4
-				responseTokens := len(msg.Answer) / 4
-				eventsInPrompt := len(m.feedEntries[m.selectedFeed.ID])
+			m.metricsCollector.RecordLLMRequest(feedID, promptTokens, responseTokens, ttftMs, genTimeMs, eventsInPrompt, false)
 
-				// Calculate TTFT and generation time
-				var ttftMs, genTimeMs float64
-				if !m.aiFirstToken.IsZero() && !m.aiStartTime.IsZero() {
-					ttftMs = float64(m.aiFirstToken.Sub(m.aiStartTime).Milliseconds())
-				}
-				if !m.aiStartTime.IsZero() {
-					genTimeMs = float64(time.Since(m.aiStartTime).Milliseconds())
-				}
-
-				m.metricsCollector.RecordLLMRequest(m.selectedFeed.ID, promptTokens, responseTokens, ttftMs, genTimeMs, eventsInPrompt, false)
-			}
+			// Clean up per-feed timing
+			delete(m.aiStartTimes, feedID)
+			delete(m.aiFirstTokens, feedID)
 		}
 		return m, m.nextWSListen()
 
 	case aiTokenMsg:
-		// Streaming token - append to response
-		if msg.RequestID == m.aiRequestID {
-			// Track first token time for TTFT
-			if m.aiFirstToken.IsZero() && len(msg.Token) > 0 {
-				m.aiFirstToken = time.Now()
+		// Streaming token - look up feed ID from request ID for concurrent support
+		feedID, exists := m.aiActiveRequests[msg.RequestID]
+		if !exists {
+			// Fallback for backwards compatibility
+			if msg.RequestID == m.aiRequestID {
+				feedID = m.aiRequestFeedID
+			} else {
+				// Unknown request, ignore
+				return m, m.nextWSListen()
 			}
-			m.aiResponse += msg.Token
-			m.aiLoading = true // Keep showing loading while streaming
 		}
+
+		// Track first token time for TTFT (per-feed)
+		if _, hasFirstToken := m.aiFirstTokens[feedID]; !hasFirstToken && len(msg.Token) > 0 {
+			m.aiFirstTokens[feedID] = time.Now()
+		}
+		m.aiResponses[feedID] += msg.Token
+		m.aiLoading[feedID] = true // Keep showing loading while streaming
 		return m, m.nextWSListen()
 
 	case aiTickMsg:
 		// Auto-query tick
 		if m.aiAutoMode && m.selectedFeed != nil && m.isSubscribed(m.selectedFeed.ID) {
+			feedID := m.selectedFeed.ID
+			// Skip if paused for this feed
+			if m.aiPaused[feedID] {
+				return m, tea.Tick(time.Second, func(t time.Time) tea.Msg { return aiTickMsg{} })
+			}
 			// Check if enough time has passed
 			if time.Since(m.aiLastQuery) >= time.Duration(m.aiInterval)*time.Second {
 				m.aiLastQuery = time.Now()
-				m.aiLoading = true
-				m.aiRequestID = fmt.Sprintf("req-%d", time.Now().UnixNano())
-				m.aiStartTime = time.Now()
-				m.aiFirstToken = time.Time{} // Reset first token time
-				m.aiResponse = ""
+				m.aiLoading[feedID] = true
+				requestID := fmt.Sprintf("req-%d", time.Now().UnixNano())
+				m.aiRequestID = requestID
+				m.aiRequestFeedID = feedID
+				// Register for concurrent tracking
+				m.aiActiveRequests[requestID] = feedID
+				m.aiStartTimes[feedID] = time.Now()
+				delete(m.aiFirstTokens, feedID) // Reset first token time for this feed
+				m.aiResponses[feedID] = ""
 				return m, tea.Batch(m.sendAIQuery(), m.nextWSListen(), tea.Tick(time.Second, func(t time.Time) tea.Msg { return aiTickMsg{} }))
 			}
 		}
@@ -826,25 +887,23 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "tab":
 		// Cycle through tabs: Dashboard -> Register Feed -> My Feeds
 		m.activeTab = (m.activeTab + 1) % tabCount
+		// Blur all AI prompts on tab switch
+		for feedID, prompt := range m.aiPrompts {
+			prompt.Blur()
+			m.aiPrompts[feedID] = prompt
+		}
+		m.aiFocused = false
 		switch m.activeTab {
 		case tabDashboard:
 			m.screen = screenDashboard
-			m.aiPrompt.Blur()
-			m.aiFocused = false
 		case tabRegisterFeed:
 			m.screen = screenRegisterFeed
 			m.feedName.Focus()
 			m.feedFormFocus = 0
-			m.aiPrompt.Blur()
-			m.aiFocused = false
 		case tabMyFeeds:
 			m.screen = screenFeeds
-			m.aiPrompt.Blur()
-			m.aiFocused = false
 		case tabHelp:
 			m.screen = screenHelp
-			m.aiPrompt.Blur()
-			m.aiFocused = false
 		}
 		return m, nil
 	case "shift+tab":
@@ -853,25 +912,23 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.activeTab < 0 {
 			m.activeTab = tabCount - 1
 		}
+		// Blur all AI prompts on tab switch
+		for feedID, prompt := range m.aiPrompts {
+			prompt.Blur()
+			m.aiPrompts[feedID] = prompt
+		}
+		m.aiFocused = false
 		switch m.activeTab {
 		case tabDashboard:
 			m.screen = screenDashboard
-			m.aiPrompt.Blur()
-			m.aiFocused = false
 		case tabRegisterFeed:
 			m.screen = screenRegisterFeed
 			m.feedName.Focus()
 			m.feedFormFocus = 0
-			m.aiPrompt.Blur()
-			m.aiFocused = false
 		case tabMyFeeds:
 			m.screen = screenFeeds
-			m.aiPrompt.Blur()
-			m.aiFocused = false
 		case tabHelp:
 			m.screen = screenHelp
-			m.aiPrompt.Blur()
-			m.aiFocused = false
 		}
 		return m, nil
 	}
@@ -883,32 +940,64 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Handle AI prompt input when focused
 	if m.aiFocused {
+		// Get current feed ID for per-feed prompt
+		var currentFeedID string
+		if len(m.feeds) > 0 && m.selectedIdx < len(m.feeds) {
+			currentFeedID = m.feeds[m.selectedIdx].ID
+		}
+
 		switch msg.String() {
 		case "esc":
 			m.aiFocused = false
-			m.aiPrompt.Blur()
+			if currentFeedID != "" {
+				if prompt, ok := m.aiPrompts[currentFeedID]; ok {
+					prompt.Blur()
+					m.aiPrompts[currentFeedID] = prompt
+				}
+			}
 			return m, nil
 		case "enter":
 			// Submit query and exit edit mode
 			m.aiFocused = false
-			m.aiPrompt.Blur()
+			if currentFeedID != "" {
+				if prompt, ok := m.aiPrompts[currentFeedID]; ok {
+					prompt.Blur()
+					m.aiPrompts[currentFeedID] = prompt
+				}
+			}
 			if len(m.feeds) > 0 && m.selectedIdx < len(m.feeds) {
 				feed := m.feeds[m.selectedIdx]
 				if m.isSubscribed(feed.ID) {
+					// Check if paused
+					if m.aiPaused[feed.ID] {
+						m.statusMessage = "AI is paused for this feed. Press 'P' to resume."
+						return m, nil
+					}
 					m.selectedFeed = &feed
-					m.aiLoading = true
-					m.aiRequestID = fmt.Sprintf("req-%d", time.Now().UnixNano())
-					m.aiStartTime = time.Now()
-					m.aiFirstToken = time.Time{} // Reset first token time
-					m.aiResponse = ""
+					feedID := feed.ID
+					m.aiLoading[feedID] = true
+					requestID := fmt.Sprintf("req-%d", time.Now().UnixNano())
+					m.aiRequestID = requestID
+					m.aiRequestFeedID = feedID
+					// Register for concurrent tracking
+					m.aiActiveRequests[requestID] = feedID
+					m.aiStartTimes[feedID] = time.Now()
+					delete(m.aiFirstTokens, feedID) // Reset first token time for this feed
+					m.aiResponses[feedID] = ""
 					return m, tea.Batch(m.sendAIQuery(), m.nextWSListen())
 				}
 			}
 			return m, nil
 		default:
-			var cmd tea.Cmd
-			m.aiPrompt, cmd = m.aiPrompt.Update(msg)
-			return m, cmd
+			// Update the per-feed prompt
+			if currentFeedID != "" {
+				prompt := m.getOrCreatePrompt(currentFeedID)
+				var cmd tea.Cmd
+				prompt, cmd = prompt.Update(msg)
+				m.aiPrompts[currentFeedID] = prompt
+				return m, cmd
+			}
+			return m, nil
 		}
 	}
 
@@ -1038,17 +1127,48 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.aiInterval = aiIntervalOptions[m.aiIntervalIdx]
 			m.statusMessage = fmt.Sprintf("AI query interval set to %ds", m.aiInterval)
 		}
+	case "P":
+		// Toggle AI pause/play for current feed (Shift+P)
+		if (m.screen == screenFeeds || m.screen == screenDashboard) && !m.aiFocused {
+			if len(m.feeds) > 0 && m.selectedIdx < len(m.feeds) {
+				feedID := m.feeds[m.selectedIdx].ID
+				m.aiPaused[feedID] = !m.aiPaused[feedID]
+				if m.aiPaused[feedID] {
+					m.statusMessage = "AI Analysis PAUSED for this feed (Shift+P to resume)"
+				} else {
+					m.statusMessage = "AI Analysis RESUMED for this feed"
+					// If in auto mode, restart the query cycle
+					if m.aiAutoMode {
+						m.aiLastQuery = time.Now().Add(-time.Duration(m.aiInterval) * time.Second) // Force immediate query
+						return m, m.startAIAutoQuery()
+					}
+				}
+			}
+		}
 	case "p":
-		// Focus AI prompt for editing (removed toggle behavior)
+		// Focus AI prompt for editing
 		if (m.screen == screenFeeds || m.screen == screenDashboard) && !m.aiFocused {
 			m.aiFocused = true
-			m.aiPrompt.Focus()
+			// Get or create per-feed prompt and focus it
+			if len(m.feeds) > 0 && m.selectedIdx < len(m.feeds) {
+				feedID := m.feeds[m.selectedIdx].ID
+				prompt := m.getOrCreatePrompt(feedID)
+				prompt.Focus()
+				m.aiPrompts[feedID] = prompt
+			}
 		}
 	case "esc":
 		// Exit AI prompt editing or go back from Feed Detail
 		if m.aiFocused {
 			m.aiFocused = false
-			m.aiPrompt.Blur()
+			// Blur per-feed prompt
+			if len(m.feeds) > 0 && m.selectedIdx < len(m.feeds) {
+				feedID := m.feeds[m.selectedIdx].ID
+				if prompt, ok := m.aiPrompts[feedID]; ok {
+					prompt.Blur()
+					m.aiPrompts[feedID] = prompt
+				}
+			}
 			return m, nil
 		}
 		// Go back from Feed Detail view to My Feeds
@@ -1057,16 +1177,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.selectedFeed = nil
 			return m, nil
 		}
-	case "[":
-		// Scroll AI viewport up (My Feeds and Dashboard)
-		if (m.screen == screenFeeds || m.screen == screenDashboard) && !m.aiFocused && m.aiViewportReady {
-			m.aiViewport.ScrollUp(3)
-		}
-	case "]":
-		// Scroll AI viewport down (My Feeds and Dashboard)
-		if (m.screen == screenFeeds || m.screen == screenDashboard) && !m.aiFocused && m.aiViewportReady {
-			m.aiViewport.ScrollDown(3)
-		}
+
 	case "r":
 		// Force reconnect - close existing connection if any and reconnect
 		if m.user != nil {
@@ -1596,13 +1707,22 @@ func (m model) viewMyFeeds() string {
 		// AI Analysis Box (right column) - with scrollable output
 		aiBuilder := strings.Builder{}
 
-		// Mode toggle
+		// Mode toggle + Pause state
 		modeLabel := "Manual"
 		if m.aiAutoMode {
 			modeLabel = fmt.Sprintf("Auto (%ds)", m.aiInterval)
 		}
 		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Mode: "))
 		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(brightCyanColor).Render(modeLabel))
+
+		// Show pause status
+		if m.aiPaused[feed.ID] {
+			aiBuilder.WriteString("  ")
+			aiBuilder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF6B6B")).Render("⏸ PAUSED"))
+		} else {
+			aiBuilder.WriteString("  ")
+			aiBuilder.WriteString(lipgloss.NewStyle().Foreground(greenColor).Render("▶ Active"))
+		}
 		aiBuilder.WriteString("\n")
 
 		// Dynamic separator based on AI panel width
@@ -1614,8 +1734,8 @@ func (m model) viewMyFeeds() string {
 		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(darkMagentaColor).Render(separator))
 		aiBuilder.WriteString("\n\n")
 
-		// Output stream - show last 3 responses with full content (scrollable)
-		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Output Stream (scroll: [ ]):"))
+		// Output stream - show last 3 responses
+		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Output Stream (last 3):"))
 		aiBuilder.WriteString("\n")
 
 		// Calculate available height for output area
@@ -1631,12 +1751,17 @@ func (m model) viewMyFeeds() string {
 			aiTextWidth = 30
 		}
 
-		if m.aiLoading && len(m.aiOutputHistory) == 0 {
+		// Get per-feed AI state
+		feedAIHistory := m.aiOutputHistories[feed.ID]
+		feedAIResponse := m.aiResponses[feed.ID]
+		feedAILoading := m.aiLoading[feed.ID]
+
+		if feedAILoading && len(feedAIHistory) == 0 {
 			aiBuilder.WriteString(lipgloss.NewStyle().Foreground(magentaColor).Render("[...] Querying LLM..."))
 			aiBuilder.WriteString("\n")
 		}
 
-		if len(m.aiOutputHistory) == 0 && !m.aiLoading {
+		if len(feedAIHistory) == 0 && !feedAILoading {
 			aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("No outputs yet. Press 'p' then Enter."))
 			aiBuilder.WriteString("\n")
 		} else {
@@ -1644,12 +1769,12 @@ func (m model) viewMyFeeds() string {
 			var outputContent strings.Builder
 			maxOutputs := 3
 			startIdx := 0
-			if len(m.aiOutputHistory) > maxOutputs {
-				startIdx = len(m.aiOutputHistory) - maxOutputs
+			if len(feedAIHistory) > maxOutputs {
+				startIdx = len(feedAIHistory) - maxOutputs
 			}
 
-			for i := startIdx; i < len(m.aiOutputHistory); i++ {
-				entry := m.aiOutputHistory[i]
+			for i := startIdx; i < len(feedAIHistory); i++ {
+				entry := feedAIHistory[i]
 				// Header line with timestamp and provider
 				timestamp := entry.Timestamp.Format("15:04:05")
 				header := fmt.Sprintf("[%s | %s | %dms]", timestamp, entry.Provider, entry.Duration)
@@ -1662,59 +1787,68 @@ func (m model) viewMyFeeds() string {
 				outputContent.WriteString("\n")
 
 				// Add separator between outputs
-				if i < len(m.aiOutputHistory)-1 {
+				if i < len(feedAIHistory)-1 {
 					outputContent.WriteString(lipgloss.NewStyle().Foreground(grayColor).Render("---"))
 					outputContent.WriteString("\n")
 				}
 			}
 
 			// Show current streaming output if loading
-			if m.aiLoading && m.aiResponse != "" {
+			if feedAILoading && feedAIResponse != "" {
 				outputContent.WriteString(lipgloss.NewStyle().Foreground(grayColor).Render("---"))
 				outputContent.WriteString("\n")
 				outputContent.WriteString(lipgloss.NewStyle().Foreground(magentaColor).Render("[...] Streaming..."))
 				outputContent.WriteString("\n")
-				wrapped := wrapText(m.aiResponse, aiTextWidth)
+				wrapped := wrapText(feedAIResponse, aiTextWidth)
 				outputContent.WriteString(lipgloss.NewStyle().Foreground(whiteColor).Render(wrapped))
 				outputContent.WriteString("\n")
 			}
 
-			// Render the scrollable output area
-			outputLines := strings.Split(outputContent.String(), "\n")
-
-			// Simple viewport: show last N lines that fit
-			visibleLines := outputAreaHeight
-			startLine := 0
-			if len(outputLines) > visibleLines {
-				startLine = len(outputLines) - visibleLines
-			}
-
-			for i := startLine; i < len(outputLines) && i < startLine+visibleLines; i++ {
-				aiBuilder.WriteString(outputLines[i])
-				if i < len(outputLines)-1 && i < startLine+visibleLines-1 {
-					aiBuilder.WriteString("\n")
-				}
-			}
-
-			// Show scroll indicator if there's more content
-			if len(outputLines) > visibleLines {
-				aiBuilder.WriteString("\n")
-				aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render(fmt.Sprintf("  [%d more lines above]", startLine)))
-			}
+			// Render all output directly (no scrolling)
+			aiBuilder.WriteString(outputContent.String())
 		}
 
 		aiBuilder.WriteString("\n")
 		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(darkMagentaColor).Render(separator))
 		aiBuilder.WriteString("\n")
 
-		// Prompt input area - with green > prefix only
+		// Prompt input area - with green > prefix and per-feed prompt
 		promptPrefix := lipgloss.NewStyle().Foreground(greenColor).Render("> ")
 		aiBuilder.WriteString(promptPrefix)
-		aiBuilder.WriteString(m.aiPrompt.View())
+
+		// Get per-feed prompt (view-only version)
+		feedPrompt := m.getPrompt(feed.ID)
+
+		// Wrap the prompt text to fit in the panel
+		promptWidth := aiColWidth - 12 // account for padding, border, and prefix
+		if promptWidth < 20 {
+			promptWidth = 20
+		}
+
+		promptValue := feedPrompt.View()
+		if m.aiFocused {
+			// When focused, show the full input with cursor
+			aiBuilder.WriteString(promptValue)
+		} else {
+			// When not focused, show wrapped prompt text
+			actualValue := feedPrompt.Value()
+			if actualValue == "" {
+				aiBuilder.WriteString(lipgloss.NewStyle().Foreground(grayColor).Render(feedPrompt.Placeholder))
+			} else {
+				// Wrap the prompt text if it's too long
+				if len(actualValue) > promptWidth {
+					wrapped := wrapText(actualValue, promptWidth)
+					aiBuilder.WriteString(lipgloss.NewStyle().Foreground(whiteColor).Render(wrapped))
+				} else {
+					aiBuilder.WriteString(lipgloss.NewStyle().Foreground(whiteColor).Render(actualValue))
+				}
+			}
+		}
 		aiBuilder.WriteString("\n\n")
 
-		// AI Controls hint
-		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Enter: send | m: mode | p: edit prompt"))
+		// AI Controls hint - updated with pause info
+		controlHint := "Enter: send | m: mode | p: edit | Shift+P: pause"
+		aiBuilder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render(controlHint))
 
 		aiBox := renderBoxWithTitle("AI Analysis", aiBuilder.String(), aiColWidth, aiHeight, darkMagentaColor, magentaColor)
 
@@ -1975,14 +2109,17 @@ KEYBOARD SHORTCUTS
   s           Subscribe/Unsubscribe to feed
   D           Delete selected feed (Shift+D)
   r           Reconnect WebSocket
-  p           Open custom AI prompt input
-  [/]         Scroll AI output up/down
+  p           Open custom AI prompt input (per-feed)
+  Shift+P     Pause/Resume AI Analysis
   Esc         Return from feed details
 
 AI ANALYSIS
 -----------
 The AI panel provides intelligent insights about your data streams.
 Press 'p' to enter a custom prompt for analysis.
+Press 'Shift+P' to pause/resume AI queries for current feed.
+
+Each feed has its own prompt - prompts are preserved when switching feeds.
 
 The AI uses your feed's system prompt combined with recent data to 
 generate contextual analysis and insights.
@@ -2046,8 +2183,8 @@ KEYBOARD REFERENCE
     Up/Down         Navigate feed list
     i               Change AI interval
     m               Toggle AI auto/manual
-    p               Custom AI prompt
-    [/]             Scroll AI output
+    p               Custom AI prompt (per-feed)
+    Shift+P         Pause/Resume AI
     r               Reconnect WebSocket
     
   My Feeds Only:
@@ -2334,6 +2471,37 @@ func deleteFeedCmd(client *api.Client, feedID string) tea.Cmd {
 // AI interval options in seconds
 var aiIntervalOptions = []int{5, 10, 30, 60}
 
+// getOrCreatePrompt gets the prompt for a feed, creating a new one if it doesn't exist
+// NOTE: Uses pointer receiver to allow modification
+func (m *model) getOrCreatePrompt(feedID string) textinput.Model {
+	if prompt, ok := m.aiPrompts[feedID]; ok {
+		return prompt
+	}
+	// Create new prompt for this feed
+	newPrompt := textinput.New()
+	newPrompt.Placeholder = "Ask about the streaming data..."
+	newPrompt.CharLimit = 500
+	newPrompt.Width = 50
+	newPrompt.Prompt = "" // Remove default > prefix since we add our own
+	m.aiPrompts[feedID] = newPrompt
+	return newPrompt
+}
+
+// getPrompt returns the prompt for a feed if it exists, or creates a default view-only version
+// NOTE: Uses value receiver for view functions - does NOT persist new prompts
+func (m model) getPrompt(feedID string) textinput.Model {
+	if prompt, ok := m.aiPrompts[feedID]; ok {
+		return prompt
+	}
+	// Return a new prompt for display purposes only
+	newPrompt := textinput.New()
+	newPrompt.Placeholder = "Ask about the streaming data..."
+	newPrompt.CharLimit = 500
+	newPrompt.Width = 50
+	newPrompt.Prompt = ""
+	return newPrompt
+}
+
 // sendAIQuery sends a query to the LLM via WebSocket
 // NOTE: Caller must set m.aiLoading, m.aiRequestID, and clear m.aiResponse before calling
 func (m model) sendAIQuery() tea.Cmd {
@@ -2343,12 +2511,22 @@ func (m model) sendAIQuery() tea.Cmd {
 		}
 	}
 
-	prompt := m.aiPrompt.Value()
+	feedID := m.selectedFeed.ID
+
+	// Check if paused - return nil (no-op) instead of error
+	if m.aiPaused[feedID] {
+		return nil
+	}
+
+	// Get per-feed prompt
+	prompt := ""
+	if feedPrompt, ok := m.aiPrompts[feedID]; ok {
+		prompt = feedPrompt.Value()
+	}
 	if prompt == "" {
 		prompt = "Analyze the recent data and provide insights"
 	}
 
-	feedID := m.selectedFeed.ID
 	systemPrompt := m.selectedFeed.SystemPrompt
 	requestID := m.aiRequestID
 	wsClient := m.wsClient
