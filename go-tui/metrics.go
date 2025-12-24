@@ -28,6 +28,11 @@ type FeedMetrics struct {
 	CacheApproxBytes     uint64  // sum of len(rawJSON) for cached items
 	OldestItemAgeSeconds float64 // how far back the context goes
 
+	// 2.5) Packet loss / context overflow metrics
+	MessagesDroppedTotal  uint64  // messages not included in LLM context (parse errors, overflow)
+	ContextEvictionsTotal uint64  // older messages evicted when context fills up
+	DropRatePercent       float64 // (dropped / received) * 100
+
 	// 3) Payload size stats (recent window)
 	PayloadSizeLastBytes int
 	PayloadSizeAvgBytes  float64
@@ -520,6 +525,39 @@ func (mc *MetricsCollector) RecordCacheStats(feedID string, itemCount int, appro
 	fm.CacheItemsCurrent = itemCount
 	fm.CacheApproxBytes = approxBytes
 	fm.OldestItemAgeSeconds = oldestAge
+}
+
+// RecordPacketLoss records when a message is dropped (not included in LLM context)
+func (mc *MetricsCollector) RecordPacketLoss(feedID string, reason string) {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+
+	fm, exists := mc.feedMetrics[feedID]
+	if !exists {
+		return
+	}
+
+	fm.MessagesDroppedTotal++
+	// Update drop rate
+	if fm.MessagesReceivedTotal > 0 {
+		fm.DropRatePercent = float64(fm.MessagesDroppedTotal) / float64(fm.MessagesReceivedTotal) * 100
+	}
+}
+
+// RecordContextEviction records when older messages are evicted from context
+func (mc *MetricsCollector) RecordContextEviction(feedID string, count int) {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+
+	fm, exists := mc.feedMetrics[feedID]
+	if !exists {
+		return
+	}
+
+	// Prevent integer overflow: only add if count is non-negative
+	if count > 0 {
+		fm.ContextEvictionsTotal += uint64(count)
+	}
 }
 
 // RecordLLMRequest records an LLM request with token counts and timing

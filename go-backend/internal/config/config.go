@@ -73,12 +73,17 @@ func Load() Config {
 	llmContextLimit := parseInt(getEnv("LLM_CONTEXT_LIMIT", "50"))
 	llmTemp := parseFloat(getEnv("LLM_TEMPERATURE", "0.7"))
 
+	jwtSecret := getEnv("JWT_SECRET", "change-me")
+	if jwtSecret == "change-me" {
+		log.Println("⚠️  WARNING: Using default JWT_SECRET. This is insecure for production.")
+	}
+
 	return Config{
 		Env:                getEnv("NODE_ENV", "development"),
 		Host:               getEnv("BACKEND_HOST", "0.0.0.0"),
 		Port:               port,
 		CORSOrigin:         getEnv("CORS_ORIGIN", "http://localhost:7200"),
-		JWTSecret:          getEnv("JWT_SECRET", "change-me"),
+		JWTSecret:          jwtSecret,
 		MongoURI:           getEnv("MONGODB_URI", "mongodb://localhost:27017"),
 		MongoDatabase:      getEnv("MONGODB_DB_NAME", "realtime_crypto"),
 		EncryptionKey:      getEnv("ENCRYPTION_KEY", "default-encryption-key-change-in-production"),

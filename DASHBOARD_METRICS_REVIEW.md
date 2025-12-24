@@ -41,15 +41,15 @@ Trend: ▁▂▃▄▅▆▇█▆▅▄▃▂▁▂▃▄▅▆▇█▆▅▄�
 
 ---
 
-## 2. LLM Context Panel (In-Memory Cache)
+## 2. 💾 LLM Context Panel (In-Memory Cache)
 
 These metrics track the TUI's local cache of recent feed entries used for LLM context.
 
 | Metric | Field Name | Description |
 |--------|------------|-------------|
-| **Items Current** | `CacheItemsCurrent` | Number of items currently in cache |
-| **Memory** | `CacheApproxBytes` | Approximate memory used by cached items |
-| **Oldest Item Age** | `OldestItemAgeSeconds` | Age of oldest item in cache (how far back context goes) |
+| **Events in Context** | `CacheItemsCurrent` | Number of items currently in cache |
+| **Context Size** | `CacheApproxBytes` | Approximate memory used by cached items |
+| **Context Age** | `OldestItemAgeSeconds` | Age of oldest item in cache (how far back context goes) |
 
 ### 📈 Cache Memory Sparkline
 
@@ -61,6 +61,24 @@ Trend: ▂▂▃▃▄▄▅▅▆▆▇▇▆▅▅▄▄▃▃▂▂▃▃▄�
 - **Data Source**: `CacheBytesHistory` → sampled from `CacheApproxBytes`
 - **Color Coding**: Higher values = red (memory pressure), lower values = green
 - **Purpose**: Track memory growth over time, spot memory leaks or context accumulation
+
+### Packet Loss / Context Overflow Metrics
+
+These metrics track message handling and context window management:
+
+| Metric | Field Name | Description |
+|--------|------------|-------------|
+| **Dropped** | `MessagesDroppedTotal` | Messages not included in LLM context (parse errors, overflow) |
+| **Evicted** | `ContextEvictionsTotal` | Older messages evicted when context fills up |
+| **Drop Rate** | `DropRatePercent` | Percentage of messages dropped: (dropped / received) × 100 |
+
+#### Color Thresholds
+
+| Metric | Good (Green) | Warning (Yellow) | Bad (Red) |
+|--------|--------------|------------------|-----------|
+| Dropped | 0 | > 0 | - |
+| Evicted | < 10 | 10-50 | > 50 |
+| Drop Rate | < 1% | 1-5% | > 5% |
 
 ---
 
@@ -83,19 +101,46 @@ These metrics track AI/LLM usage and token consumption per feed.
 
 | Metric | Field Name | Description |
 |--------|------------|-------------|
-| **Requests Total** | `LLMRequestsTotal` | Number of LLM queries made |
-| **Input Tokens (Last)** | `InputTokensLast` | Input tokens in the most recent request |
-| **Output Tokens (Last)** | `OutputTokensLast` | Output tokens in the most recent request |
-| **Input Tokens (Total)** | `InputTokensTotal` | Cumulative input/prompt tokens used |
-| **Output Tokens (Total)** | `OutputTokensTotal` | Cumulative output/response tokens used |
+| **Total Requests** | `LLMRequestsTotal` | Number of LLM queries made |
+
+### Last Request Section
+
+| Metric | Field Name | Description |
+|--------|------------|-------------|
+| **Input Tokens** | `InputTokensLast` | Input tokens in the most recent request |
+| **Output Tokens** | `OutputTokensLast` | Output tokens in the most recent request |
+
+### Session Totals Section
+
+| Metric | Field Name | Description |
+|--------|------------|-------------|
+| **Input Tokens** | `InputTokensTotal` | Cumulative input/prompt tokens used |
+| **Output Tokens** | `OutputTokensTotal` | Cumulative output/response tokens used |
 | **Total Tokens** | Computed | Sum of input + output tokens |
+
+### Context Section
+
+| Metric | Field Name | Description |
+|--------|------------|-------------|
 | **Events in Context** | `EventsInContextCurrent` | Number of feed events currently in LLM context |
-| **Context Usage %** | `ContextUtilizationPercent` | Prompt tokens / model context limit × 100 |
+| **Context Usage %** | `ContextUtilizationPercent` | Prompt tokens / model context limit × 100 (with visual bar) |
+
+### Timing Section
+
+| Metric | Field Name | Description |
+|--------|------------|-------------|
 | **TTFT (last)** | `TTFTMs` | Time to First Token - ms until first streaming token arrived |
 | **TTFT (avg)** | `TTFTAvgMs` | Average Time to First Token across requests |
 | **Gen Time (last)** | `GenerationTimeMs` | Total time to generate full response (last request) |
 | **Gen Time (avg)** | `GenerationTimeAvgMs` | Average total generation time across requests |
 | **Errors** | `LLMErrorsTotal` | Failed LLM requests |
+
+#### Timing Color Thresholds
+
+| Metric | Good (Green) | Warning (Yellow) | Bad (Red) |
+|--------|--------------|------------------|-----------|
+| TTFT | < 1000ms | 1000-3000ms | > 3000ms |
+| Gen Time | < 5000ms | 5000-10000ms | > 10000ms |
 
 ### 📈 Generation Time Sparkline
 
@@ -149,7 +194,9 @@ The top summary bar shows a condensed view with these key metrics:
 |---------|--------|-------------|
 | WS Status | `WSConnected` | ● Connected / ● Disconnected |
 | msg/s | `MessagesPerSecond10s` | 10-second message rate |
-| tokens | `InputTokensTotal`, `OutputTokensTotal` | Total tokens: in/out |
+| KB/s | `BytesPerSecond10s` | Data throughput in KB/s |
+| ctx | `CacheItemsCurrent` | Number of items in context |
+| in/out | `InputTokensLast`, `OutputTokensLast` | Tokens in last request: input/output |
 | gen | `GenerationTimeAvgMs` | Average generation time |
 
 ---
@@ -178,6 +225,11 @@ type FeedMetrics struct {
     CacheApproxBytes     uint64
     OldestItemAgeSeconds float64
 
+    // Packet loss / context overflow metrics
+    MessagesDroppedTotal  uint64   // messages not included in LLM context
+    ContextEvictionsTotal uint64   // older messages evicted when context fills up
+    DropRatePercent       float64  // (dropped / received) * 100
+
     // Payload size stats
     PayloadSizeLastBytes int
     PayloadSizeAvgBytes  float64
@@ -198,9 +250,10 @@ type FeedMetrics struct {
     GenerationTimeAvgMs       float64  // Total generation time (average)
 
     // Sparkline history data (60-sample rolling windows)
-    MsgRateHistory    []float64  // Message rate history for sparkline
-    CacheBytesHistory []float64  // Cache memory history for sparkline
-    GenTimeHistory    []float64  // Generation time history for sparkline
+    MsgRateHistory     []float64  // Message rate history for sparkline
+    CacheBytesHistory  []float64  // Cache memory history for sparkline
+    GenTimeHistory     []float64  // Generation time history for sparkline
+    PayloadSizeHistory []float64  // Payload size history for sparkline
 }
 ```
 
@@ -267,7 +320,7 @@ The following metrics were removed as placeholders or redundant:
 - `SequenceGapsDetectedTotal`, `LateMessagesTotal` (required sequence numbers)
 - `LastDisconnectReason` (string tracking removed)
 - `CacheItemsMaxSeen`, `CacheInsertsTotal`, `CacheDeletesTotal` (not needed)
-- `CacheEvictionsTotal`, `CacheEvictionsPerSecond` (no eviction logic)
+- `CacheEvictionsPerSecond` (eviction total sufficient)
 - `AverageItemAgeSeconds`, `CacheApproxBytesPerItem` (redundant)
 - `PayloadSizeMinBytes`, `PayloadSizeP50/P95/P99Bytes` (simplified to last/avg/max)
 - `LLMRequestsPerSecond` (total count sufficient)

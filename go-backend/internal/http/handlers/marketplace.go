@@ -6,11 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"net/url"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"net/url"
 
 	"github.com/turboline-ai/turbostream/go-backend/internal/models"
 	"github.com/turboline-ai/turbostream/go-backend/internal/services"

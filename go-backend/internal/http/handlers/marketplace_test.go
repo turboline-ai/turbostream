@@ -34,7 +34,7 @@ func setupMarketplaceHandler(t *testing.T) (*MarketplaceHandler, *services.Marke
 	db := client.Database(dbName)
 
 	marketplaceService := services.NewMarketplaceService(db)
-	socketManager := socket.NewManager(nil, nil, marketplaceService)
+	socketManager := socket.NewManager(nil, nil, marketplaceService, []string{"*"})
 	handler := NewMarketplaceHandler(marketplaceService, socketManager)
 
 	testUserID := primitive.NewObjectID()

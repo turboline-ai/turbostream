@@ -357,7 +357,7 @@ type model struct {
 	aiOutputHistories map[string][]aiOutputEntry // feedID -> history of AI outputs (last 10)
 	aiLoading         map[string]bool            // feedID -> whether AI query is in progress
 	aiPaused          map[string]bool            // feedID -> whether AI is paused (won't send new queries)
-	aiLastQuery       time.Time                  // last query time
+	aiLastQuery       map[string]time.Time       // feedID -> last query time
 	aiFocused         bool                       // whether AI panel is focused for editing
 	aiRequestID       string                     // track current request (for selected feed display)
 	aiRequestFeedID   string                     // track which feed the current request is for (for selected feed)
@@ -482,6 +482,7 @@ func newModel(client *api.Client, backendURL, wsURL, token, presetEmail string) 
 		aiOutputHistories: make(map[string][]aiOutputEntry),
 		aiLoading:         make(map[string]bool),
 		aiPaused:          make(map[string]bool),      // per-feed pause state
+		aiLastQuery:       make(map[string]time.Time), // per-feed last query time
 		aiActiveRequests:  make(map[string]string),    // requestID -> feedID for concurrent tracking
 		aiStartTimes:      make(map[string]time.Time), // feedID -> start time
 		aiFirstTokens:     make(map[string]time.Time), // feedID -> first token time
@@ -830,27 +831,52 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.nextWSListen()
 
 	case aiTickMsg:
-		// Auto-query tick
-		if m.aiAutoMode && m.selectedFeed != nil && m.isSubscribed(m.selectedFeed.ID) {
-			feedID := m.selectedFeed.ID
-			// Skip if paused for this feed
-			if m.aiPaused[feedID] {
-				return m, tea.Tick(time.Second, func(t time.Time) tea.Msg { return aiTickMsg{} })
+		// Auto-query tick - iterate over ALL subscribed feeds
+		if m.aiAutoMode {
+			var cmds []tea.Cmd
+
+			// Check all subscribed feeds for auto-query eligibility
+			for _, sub := range m.subs {
+				feedID := sub.FeedID
+
+				// Skip if paused for this feed
+				if m.aiPaused[feedID] {
+					continue
+				}
+
+				// Skip if already loading
+				if m.aiLoading[feedID] {
+					continue
+				}
+
+				// Check if enough time has passed for this specific feed
+				lastQuery, hasQuery := m.aiLastQuery[feedID]
+				if !hasQuery || time.Since(lastQuery) >= time.Duration(m.aiInterval)*time.Second {
+					m.aiLastQuery[feedID] = time.Now()
+					m.aiLoading[feedID] = true
+
+					requestID := fmt.Sprintf("req-%d-%s", time.Now().UnixNano(), feedID)
+
+					// If this is the currently selected feed, update the display ID
+					if m.selectedFeed != nil && m.selectedFeed.ID == feedID {
+						m.aiRequestID = requestID
+						m.aiRequestFeedID = feedID
+					}
+
+					// Register for concurrent tracking
+					m.aiActiveRequests[requestID] = feedID
+					m.aiStartTimes[feedID] = time.Now()
+					delete(m.aiFirstTokens, feedID) // Reset first token time for this feed
+					m.aiResponses[feedID] = ""
+
+					// Create a command for this specific feed query
+					cmds = append(cmds, m.sendAIQueryForFeed(feedID, requestID))
+				}
 			}
-			// Check if enough time has passed
-			if time.Since(m.aiLastQuery) >= time.Duration(m.aiInterval)*time.Second {
-				m.aiLastQuery = time.Now()
-				m.aiLoading[feedID] = true
-				requestID := fmt.Sprintf("req-%d", time.Now().UnixNano())
-				m.aiRequestID = requestID
-				m.aiRequestFeedID = feedID
-				// Register for concurrent tracking
-				m.aiActiveRequests[requestID] = feedID
-				m.aiStartTimes[feedID] = time.Now()
-				delete(m.aiFirstTokens, feedID) // Reset first token time for this feed
-				m.aiResponses[feedID] = ""
-				return m, tea.Batch(m.sendAIQuery(), m.nextWSListen(), tea.Tick(time.Second, func(t time.Time) tea.Msg { return aiTickMsg{} }))
-			}
+
+			// Always schedule next tick and listen for WS
+			cmds = append(cmds, m.nextWSListen(), tea.Tick(time.Second, func(t time.Time) tea.Msg { return aiTickMsg{} }))
+			return m, tea.Batch(cmds...)
 		}
 		// Schedule next tick
 		return m, tea.Tick(time.Second, func(t time.Time) tea.Msg { return aiTickMsg{} })
@@ -1114,7 +1140,10 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.aiAutoMode = !m.aiAutoMode
 			if m.aiAutoMode {
 				m.statusMessage = fmt.Sprintf("AI Auto mode enabled (every %ds)", m.aiInterval)
-				m.aiLastQuery = time.Now()
+				// Reset last query time for all feeds to trigger immediate update
+				for _, f := range m.feeds {
+					m.aiLastQuery[f.ID] = time.Now().Add(-time.Duration(m.aiInterval) * time.Second)
+				}
 				return m, m.startAIAutoQuery()
 			} else {
 				m.statusMessage = "AI Manual mode enabled"
@@ -1139,7 +1168,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.statusMessage = "AI Analysis RESUMED for this feed"
 					// If in auto mode, restart the query cycle
 					if m.aiAutoMode {
-						m.aiLastQuery = time.Now().Add(-time.Duration(m.aiInterval) * time.Second) // Force immediate query
+						m.aiLastQuery[feedID] = time.Now().Add(-time.Duration(m.aiInterval) * time.Second) // Force immediate query
 						return m, m.startAIAutoQuery()
 					}
 				}
@@ -1530,7 +1559,7 @@ func (m model) viewMyFeeds() string {
 
 	// Height calculations: Feed list is 12, we want Instructions + Feed list bottom to align with Live Stream bottom
 	feedListHeight := 12
-	streamHeight := 12
+	streamHeight := 25
 	infoBoxHeight := 10 // approximate height of info box
 
 	// Total right column height = infoBox + streamBox
@@ -1804,8 +1833,21 @@ func (m model) viewMyFeeds() string {
 				outputContent.WriteString("\n")
 			}
 
-			// Render all output directly (no scrolling)
-			aiBuilder.WriteString(outputContent.String())
+			// Render output with truncation to prevent overflow
+			fullOutput := outputContent.String()
+			lines := strings.Split(fullOutput, "\n")
+
+			// If content exceeds available height, keep only the last N lines (scrolling effect)
+			if len(lines) > outputAreaHeight {
+				startIndex := len(lines) - outputAreaHeight
+				if startIndex < 0 {
+					startIndex = 0
+				}
+				lines = lines[startIndex:]
+				fullOutput = strings.Join(lines, "\n")
+			}
+
+			aiBuilder.WriteString(fullOutput)
 		}
 
 		aiBuilder.WriteString("\n")
@@ -2479,7 +2521,7 @@ func (m *model) getOrCreatePrompt(feedID string) textinput.Model {
 	}
 	// Create new prompt for this feed
 	newPrompt := textinput.New()
-	newPrompt.Placeholder = "Ask about the streaming data..."
+	newPrompt.Placeholder = "Enter a prompt to start AI analysis..."
 	newPrompt.CharLimit = 500
 	newPrompt.Width = 50
 	newPrompt.Prompt = "" // Remove default > prefix since we add our own
@@ -2495,14 +2537,14 @@ func (m model) getPrompt(feedID string) textinput.Model {
 	}
 	// Return a new prompt for display purposes only
 	newPrompt := textinput.New()
-	newPrompt.Placeholder = "Ask about the streaming data..."
+	newPrompt.Placeholder = "Enter a prompt to start AI analysis..."
 	newPrompt.CharLimit = 500
 	newPrompt.Width = 50
 	newPrompt.Prompt = ""
 	return newPrompt
 }
 
-// sendAIQuery sends a query to the LLM via WebSocket
+// sendAIQuery sends a query to the LLM via WebSocket for the currently selected feed
 // NOTE: Caller must set m.aiLoading, m.aiRequestID, and clear m.aiResponse before calling
 func (m model) sendAIQuery() tea.Cmd {
 	if m.wsClient == nil || m.selectedFeed == nil {
@@ -2510,8 +2552,16 @@ func (m model) sendAIQuery() tea.Cmd {
 			return aiResponseMsg{RequestID: m.aiRequestID, Err: fmt.Errorf("not connected or no feed selected")}
 		}
 	}
+	return m.sendAIQueryForFeed(m.selectedFeed.ID, m.aiRequestID)
+}
 
-	feedID := m.selectedFeed.ID
+// sendAIQueryForFeed sends a query to the LLM via WebSocket for a specific feed
+func (m model) sendAIQueryForFeed(feedID, requestID string) tea.Cmd {
+	if m.wsClient == nil {
+		return func() tea.Msg {
+			return aiResponseMsg{RequestID: requestID, Err: fmt.Errorf("not connected")}
+		}
+	}
 
 	// Check if paused - return nil (no-op) instead of error
 	if m.aiPaused[feedID] {
@@ -2523,12 +2573,21 @@ func (m model) sendAIQuery() tea.Cmd {
 	if feedPrompt, ok := m.aiPrompts[feedID]; ok {
 		prompt = feedPrompt.Value()
 	}
+
+	// If prompt is empty, do not send query (user must enter a prompt first)
 	if prompt == "" {
-		prompt = "Analyze the recent data and provide insights"
+		return nil
 	}
 
-	systemPrompt := m.selectedFeed.SystemPrompt
-	requestID := m.aiRequestID
+	// Find feed to get system prompt
+	systemPrompt := ""
+	for _, f := range m.feeds {
+		if f.ID == feedID {
+			systemPrompt = f.SystemPrompt
+			break
+		}
+	}
+
 	wsClient := m.wsClient
 
 	return func() tea.Msg {
