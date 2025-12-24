@@ -21,15 +21,15 @@ import (
 )
 
 type TestServer struct {
-	Server            *httptest.Server
-	WSServer          *httptest.Server
-	Client            *http.Client
-	AuthService       *services.AuthService
+	Server             *httptest.Server
+	WSServer           *httptest.Server
+	Client             *http.Client
+	AuthService        *services.AuthService
 	MarketplaceService *services.MarketplaceService
-	SocketManager     *socket.Manager
-	Config            config.Config
-	DB                *mongo.Database
-	cleanup           func()
+	SocketManager      *socket.Manager
+	Config             config.Config
+	DB                 *mongo.Database
+	cleanup            func()
 }
 
 func SetupTestServer(t *testing.T) *TestServer {
@@ -61,7 +61,7 @@ func SetupTestServer(t *testing.T) *TestServer {
 	authService := services.NewAuthService(cfg, client, db)
 	marketplaceService := services.NewMarketplaceService(db)
 	azureService := &services.AzureOpenAI{} // Mock for testing
-	socketManager := socket.NewManager(authService, azureService, marketplaceService)
+	socketManager := socket.NewManager(authService, azureService, marketplaceService, []string{"*"})
 
 	// Setup router
 	router := gin.New()
@@ -84,11 +84,11 @@ func SetupTestServer(t *testing.T) *TestServer {
 	httpServer := httptest.NewServer(router)
 
 	// Setup WebSocket server
-	wsRouter := gin.New()
-	wsRouter.GET("/ws", func(c *gin.Context) {
-		socketManager.Handle(c.Writer, c.Request)
+	wsMux := http.NewServeMux()
+	wsMux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		socketManager.Handle(w, r)
 	})
-	wsServer := httptest.NewServer(wsRouter)
+	wsServer := httptest.NewServer(wsMux)
 
 	cleanup := func() {
 		httpServer.Close()

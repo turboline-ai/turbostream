@@ -103,6 +103,7 @@ func TestWebSocket_SubscribeToFeed(t *testing.T) {
 	password := "WSPassword123!"
 	var token string
 	var feedID string
+	var userID string
 
 	// Setup: Create user and feed
 	t.Run("Setup: Create user and feed", func(t *testing.T) {
@@ -120,6 +121,8 @@ func TestWebSocket_SubscribeToFeed(t *testing.T) {
 		var result map[string]interface{}
 		json.NewDecoder(resp.Body).Decode(&result)
 		token = result["token"].(string)
+		userMap := result["user"].(map[string]interface{})
+		userID = userMap["_id"].(string)
 
 		// Create feed
 		feedPayload := map[string]interface{}{
@@ -163,13 +166,16 @@ func TestWebSocket_SubscribeToFeed(t *testing.T) {
 		err = wsjson.Write(ctx, conn, authMsg)
 		require.NoError(t, err)
 
-		// Wait a moment for authentication
-		time.Sleep(500 * time.Millisecond)
+		// Read auth response
+		var authResponse WSMessage
+		err = wsjson.Read(ctx, conn, &authResponse)
+		require.NoError(t, err)
+		assert.Equal(t, "authenticated", authResponse.Type)
 
 		// Subscribe to feed
 		subMsg := WSMessage{
-			Type:    "subscribe",
-			Payload: json.RawMessage(fmt.Sprintf(`{"feedId":"%s"}`, feedID)),
+			Type:    "subscribe-feed",
+			Payload: json.RawMessage(fmt.Sprintf(`{"feedId":"%s", "userId":"%s"}`, feedID, userID)),
 		}
 		err = wsjson.Write(ctx, conn, subMsg)
 		require.NoError(t, err)
@@ -182,7 +188,7 @@ func TestWebSocket_SubscribeToFeed(t *testing.T) {
 		err = wsjson.Read(readCtx, conn, &response)
 		if err == nil {
 			// If we got a response, it should be subscription-related
-			assert.Contains(t, []string{"subscribed", "subscription_success", "feed_data"}, response.Type)
+			assert.Contains(t, []string{"subscribed", "subscription-success", "feed_data"}, response.Type)
 		}
 		// No error if timeout - some implementations may not send confirmation
 	})

@@ -99,6 +99,12 @@ func (c *wsClient) readLoop() {
 					Data:      string(payload.Data),
 					Time:      ts,
 				}
+			} else {
+				// Report packet dropped due to parse error
+				c.incoming <- packetDroppedMsg{
+					FeedID: payload.FeedID,
+					Reason: "json_parse_error",
+				}
 			}
 		case "token-usage-update":
 			var usage api.TokenUsage

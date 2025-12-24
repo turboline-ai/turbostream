@@ -531,6 +531,40 @@ func renderCacheHealthPanel(fm FeedMetrics, width int) string {
 	// Age stats - how far back context goes
 	lines = append(lines, renderMetric("Context Age", humanizeDuration(fm.OldestItemAgeSeconds)))
 
+	// Packet loss / eviction metrics
+	lines = append(lines, "")
+	lines = append(lines, metricLabelStyle.Render("Packet Loss:"))
+
+	// Messages dropped (not included in context)
+	droppedStyle := goodValueStyle
+	if fm.MessagesDroppedTotal > 0 {
+		droppedStyle = warnValueStyle
+	}
+	if fm.DropRatePercent > 5 {
+		droppedStyle = badValueStyle
+	}
+	lines = append(lines, renderColoredMetric("  Dropped", fmt.Sprintf("%d", fm.MessagesDroppedTotal), droppedStyle))
+
+	// Context evictions (older messages pushed out)
+	evictStyle := goodValueStyle
+	if fm.ContextEvictionsTotal > 10 {
+		evictStyle = warnValueStyle
+	}
+	if fm.ContextEvictionsTotal > 50 {
+		evictStyle = badValueStyle
+	}
+	lines = append(lines, renderColoredMetric("  Evicted", fmt.Sprintf("%d", fm.ContextEvictionsTotal), evictStyle))
+
+	// Drop rate percentage
+	dropRateStyle := goodValueStyle
+	if fm.DropRatePercent > 1 {
+		dropRateStyle = warnValueStyle
+	}
+	if fm.DropRatePercent > 5 {
+		dropRateStyle = badValueStyle
+	}
+	lines = append(lines, renderColoredMetric("  Drop Rate", fmt.Sprintf("%.1f%%", fm.DropRatePercent), dropRateStyle))
+
 	return renderPanel("💾 LLM Context", strings.Join(lines, "\n"), width)
 }
 
@@ -655,4 +689,3 @@ func renderContextBar(percent float64, width int) string {
 
 	return "  [" + bar.String() + "]"
 }
-

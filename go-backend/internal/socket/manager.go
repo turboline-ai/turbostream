@@ -133,25 +133,27 @@ type feedConnection struct {
 
 // Manager manages websocket connections and feed broadcasts.
 type Manager struct {
-	rooms        *RoomManager
-	auth         *services.AuthService
-	azure        *services.AzureOpenAI
-	llm          *services.LLMService
-	marketplace  *services.MarketplaceService
-	feedConns    map[string]*feedConnection
-	feedMu       sync.RWMutex
-	subscribers  map[string]map[*Client]struct{}
-	subscriberMu sync.RWMutex
+	rooms          *RoomManager
+	auth           *services.AuthService
+	azure          *services.AzureOpenAI
+	llm            *services.LLMService
+	marketplace    *services.MarketplaceService
+	feedConns      map[string]*feedConnection
+	feedMu         sync.RWMutex
+	subscribers    map[string]map[*Client]struct{}
+	subscriberMu   sync.RWMutex
+	allowedOrigins []string
 }
 
-func NewManager(auth *services.AuthService, azure *services.AzureOpenAI, marketplace *services.MarketplaceService) *Manager {
+func NewManager(auth *services.AuthService, azure *services.AzureOpenAI, marketplace *services.MarketplaceService, allowedOrigins []string) *Manager {
 	return &Manager{
-		rooms:       NewRoomManager(),
-		auth:        auth,
-		azure:       azure,
-		marketplace: marketplace,
-		feedConns:   make(map[string]*feedConnection),
-		subscribers: make(map[string]map[*Client]struct{}),
+		rooms:          NewRoomManager(),
+		auth:           auth,
+		azure:          azure,
+		marketplace:    marketplace,
+		feedConns:      make(map[string]*feedConnection),
+		subscribers:    make(map[string]map[*Client]struct{}),
+		allowedOrigins: allowedOrigins,
 	}
 }
 
@@ -163,8 +165,8 @@ func (m *Manager) SetLLMService(llm *services.LLMService) {
 // Handle upgrades the HTTP connection to a raw websocket connection.
 func (m *Manager) Handle(w http.ResponseWriter, r *http.Request) {
 	conn, err := coderws.Accept(w, r, &coderws.AcceptOptions{
-		InsecureSkipVerify: true,
-		OriginPatterns:     []string{"*"}, // Allow all origins including TUI
+		InsecureSkipVerify: len(m.allowedOrigins) == 0,
+		OriginPatterns:     m.allowedOrigins,
 	})
 	if err != nil {
 		log.Printf("websocket accept failed: %v", err)
@@ -213,6 +215,30 @@ func (m *Manager) runClient(client *Client) {
 
 func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 	switch msg.Type {
+	case "authenticate":
+		var payload struct {
+			Token string `json:"token"`
+		}
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil || payload.Token == "" {
+			client.send(makeMessage("auth_error", map[string]string{"error": "invalid payload"}))
+			return
+		}
+		// Verify token using auth service
+		claims, err := m.auth.ParseToken(payload.Token)
+		if err != nil {
+			client.send(makeMessage("auth_error", map[string]string{"error": "invalid token"}))
+			return
+		}
+		if userID, ok := claims["userId"].(string); ok {
+			client.userID = userID
+			client.send(makeMessage("authenticated", map[string]string{"userId": userID}))
+		} else {
+			client.send(makeMessage("auth_error", map[string]string{"error": "invalid token claims"}))
+		}
+
+	case "ping":
+		client.send(makeMessage("pong", nil))
+
 	case "register-user":
 		var payload struct {
 			UserID    string `json:"userId"`
