@@ -198,6 +198,7 @@ const (
 	screenFeedDetail
 	screenRegisterFeed
 	screenFeeds
+	screenAPI
 	screenHelp
 )
 
@@ -206,6 +207,7 @@ const (
 	tabDashboard = iota
 	tabRegisterFeed
 	tabMyFeeds
+	tabAPI
 	tabHelp
 	tabCount
 )
@@ -928,6 +930,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.feedFormFocus = 0
 		case tabMyFeeds:
 			m.screen = screenFeeds
+		case tabAPI:
+			m.screen = screenAPI
 		case tabHelp:
 			m.screen = screenHelp
 		}
@@ -953,6 +957,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.feedFormFocus = 0
 		case tabMyFeeds:
 			m.screen = screenFeeds
+		case tabAPI:
+			m.screen = screenAPI
 		case tabHelp:
 			m.screen = screenHelp
 		}
@@ -1487,7 +1493,7 @@ func (m model) viewApp() string {
 }
 
 func (m model) viewTabBar() string {
-	tabs := []string{"Dashboard", "Register Feed", "My Feeds", "Help"}
+	tabs := []string{"Dashboard", "Register Feed", "My Feeds", "API", "Help"}
 	var renderedTabs []string
 
 	for i, tab := range tabs {
@@ -1527,6 +1533,8 @@ func (m model) viewContent() string {
 		return m.viewRegisterFeed()
 	case screenFeeds:
 		return m.viewMyFeeds()
+	case screenAPI:
+		return m.viewAPI()
 	case screenHelp:
 		return m.viewHelp()
 	default:
@@ -2048,6 +2056,39 @@ func (m model) viewRegisterFeed() string {
 	return contentStyle.Render(builder.String())
 }
 
+func (m model) viewAPI() string {
+	builder := strings.Builder{}
+	builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("API & Integration"))
+	builder.WriteString("\n\n")
+	builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("Use these Feed IDs to subscribe via WebSocket or API."))
+	builder.WriteString("\n\n")
+
+	if len(m.feeds) == 0 {
+		builder.WriteString("No feeds available. Register a feed first.")
+	} else {
+		// Table header
+		builder.WriteString(lipgloss.NewStyle().Bold(true).Render(fmt.Sprintf("%-30s %-40s", "Feed Name", "Feed ID")))
+		builder.WriteString("\n")
+		builder.WriteString(strings.Repeat("-", 70))
+		builder.WriteString("\n")
+
+		for _, f := range m.feeds {
+			builder.WriteString(fmt.Sprintf("%-30s %-40s\n", truncate(f.Name, 28), f.ID))
+		}
+	}
+
+	builder.WriteString("\n\n")
+	builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("WebSocket Subscription"))
+	builder.WriteString("\n")
+	builder.WriteString("Connect to: " + m.backendURL + "/ws")
+	builder.WriteString("\n")
+	builder.WriteString("Event: 'subscribe-feed' Payload: { \"feedId\": \"<FEED_ID>\" }")
+	builder.WriteString("\n")
+	builder.WriteString("Listen for: 'llm-broadcast' event for AI updates.")
+
+	return contentStyle.Render(builder.String())
+}
+
 func (m model) viewHelp() string {
 	// Define help pages content
 	helpPages := []struct {
@@ -2186,6 +2227,72 @@ SUBSCRIPTIONS
   - Subscribe to feeds you want on your Dashboard
   - Subscribed feeds show data in real-time
   - You can have multiple active subscriptions`,
+		},
+		{
+			title: "API & WebSockets",
+			content: `API & WEBSOCKET INTEGRATION
+===========================
+
+TurboStream allows external applications to consume feed data and AI 
+analysis in real-time via WebSockets.
+
+STEP 1: CONNECT
+---------------
+  URL: ws://localhost:7210/ws
+  
+  In Postman: Enter URL and click "Connect"
+
+STEP 2: SUBSCRIBE
+-----------------
+  Choose what data you want to receive:
+
+  LLM Output Only (recommended for most use cases):
+  {
+    "type": "subscribe-llm",
+    "payload": { "feedId": "<YOUR_FEED_ID>" }
+  }
+
+  Raw Feed Data Only:
+  {
+    "type": "subscribe-feed",
+    "payload": { "feedId": "<YOUR_FEED_ID>" }
+  }
+
+  Both LLM + Raw Data:
+  {
+    "type": "subscribe-all",
+    "payload": { "feedId": "<YOUR_FEED_ID>" }
+  }
+
+STEP 3: RECEIVE DATA
+--------------------
+  Based on your subscription, you'll receive:
+
+  AI Analysis (llm-broadcast):
+  {
+    "type": "llm-broadcast",
+    "payload": {
+      "feedId": "...",
+      "answer": "<AI analysis text>",
+      "provider": "openai",
+      "timestamp": "2025-12-24T..."
+    }
+  }
+
+  Raw Feed Data (feed-data):
+  {
+    "type": "feed-data",
+    "payload": { "feedId": "...", "data": {...} }
+  }
+
+UNSUBSCRIBE
+-----------
+  {
+    "type": "unsubscribe-feed",
+    "payload": { "feedId": "<YOUR_FEED_ID>" }
+  }
+
+Use the "API" tab to find your Feed IDs.`,
 		},
 		{
 			title: "Tips & Tricks",

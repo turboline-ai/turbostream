@@ -97,6 +97,15 @@ func NewLLMService(cfg config.Config) (*LLMService, error) {
 		}
 	}
 
+	// Ollama
+	if cfg.OllamaBaseURL != "" {
+		ollama := NewOllamaClient(cfg.OllamaBaseURL, cfg.OllamaModel)
+		if ollama.Enabled() {
+			svc.providers["ollama"] = ollama
+			log.Printf("✓ Ollama enabled (model: %s)", cfg.OllamaModel)
+		}
+	}
+
 	if len(svc.providers) == 0 {
 		log.Printf("⚠ No LLM providers configured - AI features will be disabled")
 	} else {
