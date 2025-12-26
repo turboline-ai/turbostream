@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -197,6 +198,7 @@ const (
 	screenMarketplace
 	screenFeedDetail
 	screenRegisterFeed
+	screenEditFeed
 	screenFeeds
 	screenAPI
 	screenHelp
@@ -283,6 +285,10 @@ type (
 		Feed *api.Feed
 		Err  error
 	}
+	feedUpdateMsg struct {
+		Feed *api.Feed
+		Err  error
+	}
 	feedDeleteMsg struct {
 		FeedID string
 		Err    error
@@ -351,9 +357,9 @@ type model struct {
 	feedFormFocus    int
 
 	// AI Analysis panel (per-feed state)
-	aiPrompts         map[string]textinput.Model // feedID -> prompt input (per-feed prompts)
-	aiAutoMode        bool                       // true = auto query at interval, false = manual
-	aiInterval        int                        // seconds between auto queries (5, 10, 30, 60)
+	aiPrompts         map[string]textarea.Model // feedID -> prompt input (per-feed prompts)
+	aiAutoMode        bool                      // true = auto query at interval, false = manual
+	aiInterval        int                       // seconds between auto queries (5, 10, 30, 60)
 	aiIntervalIdx     int                        // index into interval options
 	aiResponses       map[string]string          // feedID -> current AI response (for streaming)
 	aiOutputHistories map[string][]aiOutputEntry // feedID -> history of AI outputs (last 10)
@@ -476,7 +482,7 @@ func newModel(client *api.Client, backendURL, wsURL, token, presetEmail string) 
 		feedSystemPrompt: feedSystemPrompt,
 		feedFormFocus:    0,
 		// AI defaults
-		aiPrompts:         make(map[string]textinput.Model), // per-feed prompts
+		aiPrompts:         make(map[string]textarea.Model), // per-feed prompts
 		aiAutoMode:        false,
 		aiInterval:        10,
 		aiIntervalIdx:     1, // 10 seconds default
@@ -710,6 +716,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case feedUpdateMsg:
+		m.loading = false
+		if msg.Err != nil {
+			m.errorMessage = msg.Err.Error()
+			return m, nil
+		}
+		m.statusMessage = fmt.Sprintf("Feed '%s' updated successfully!", msg.Feed.Name)
+		m.errorMessage = ""
+		// Clear form
+		m.feedName.SetValue("")
+		m.feedDescription.SetValue("")
+		m.feedURL.SetValue("")
+		m.feedCategory.SetValue("")
+		m.feedEventName.SetValue("")
+		m.feedSubMsg.SetValue("")
+		m.feedSystemPrompt.SetValue("")
+		m.feedFormFocus = 0
+
+		// Return to My Feeds
+		m.screen = screenFeeds
+
+		// Reload feeds to show updated data
+		return m, loadFeedsCmd(m.client)
+
 	case feedDeleteMsg:
 		m.loading = false
 		if msg.Err != nil {
@@ -724,7 +754,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.selectedIdx >= len(m.feeds)-1 && m.selectedIdx > 0 {
 			m.selectedIdx--
 		}
-		return m, loadFeedsCmd(m.client)
+		// Reload both feeds and subscriptions to ensure Dashboard is updated
+		return m, tea.Batch(loadFeedsCmd(m.client), loadSubscriptionsCmd(m.client))
 
 	case aiResponseMsg:
 		// Look up which feed this response belongs to using the request ID
@@ -898,12 +929,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "ctrl+c", "q":
+	// Global quit on Ctrl+C
+	if msg.String() == "ctrl+c" {
 		if m.wsClient != nil {
 			m.wsClient.Close()
 		}
 		return m, tea.Quit
+	}
+
+	// Quit on 'q' only if not in an input mode
+	if msg.String() == "q" {
+		isInputMode := m.screen == screenLogin || 
+			m.screen == screenRegisterFeed || 
+			m.screen == screenEditFeed || 
+			m.aiFocused
+		
+		if !isInputMode {
+			if m.wsClient != nil {
+				m.wsClient.Close()
+			}
+			return m, tea.Quit
+		}
 	}
 
 	if m.screen == screenLogin {
@@ -968,6 +1014,10 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle screen-specific key handling
 	if m.screen == screenRegisterFeed {
 		return m.updateRegisterFeed(msg)
+	}
+
+	if m.screen == screenEditFeed {
+		return m.updateEditFeed(msg)
 	}
 
 	// Handle AI prompt input when focused
@@ -1127,6 +1177,27 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, unsubscribeCmd(m.client, feedID)
 			}
 			return m, subscribeCmd(m.client, feedID, userID)
+		}
+	case "e":
+		// Edit feed (only on My Feeds screen)
+		if m.screen == screenFeeds && len(m.feeds) > 0 && m.selectedIdx < len(m.feeds) {
+			feed := m.feeds[m.selectedIdx]
+			// Only allow editing own feeds
+			if m.user != nil && feed.OwnerID == m.user.ID {
+				m.screen = screenEditFeed
+				m.feedName.SetValue(feed.Name)
+				m.feedDescription.SetValue(feed.Description)
+				m.feedURL.SetValue(feed.URL)
+				m.feedCategory.SetValue(feed.Category)
+				m.feedEventName.SetValue(feed.EventName)
+				m.feedSubMsg.SetValue("") // Default or fetch if available
+				m.feedSystemPrompt.SetValue(feed.SystemPrompt)
+				m.feedFormFocus = 0
+				m.errorMessage = ""
+				return m, m.feedName.Focus()
+			} else {
+				m.errorMessage = "You can only edit your own feeds"
+			}
 		}
 	case "D":
 		// Delete feed (Shift+D, only on My Feeds screen)
@@ -1388,6 +1459,62 @@ func (m model) updateRegisterFeed(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+func (m model) updateEditFeed(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.screen = screenFeeds
+		m.errorMessage = ""
+		return m, nil
+	case tea.KeyEnter:
+		// Submit update
+		if m.feedName.Value() == "" || m.feedURL.Value() == "" {
+			m.errorMessage = "Name and URL are required"
+			return m, nil
+		}
+		m.loading = true
+		m.errorMessage = ""
+
+		updates := map[string]interface{}{
+			"name":         m.feedName.Value(),
+			"description":  m.feedDescription.Value(),
+			"url":          m.feedURL.Value(),
+			"category":     m.feedCategory.Value(),
+			"eventName":    m.feedEventName.Value(),
+			"systemPrompt": m.feedSystemPrompt.Value(),
+		}
+
+		return m, updateFeedCmd(m.client, m.feeds[m.selectedIdx].ID, updates)
+	case tea.KeyUp, tea.KeyShiftTab:
+		return m, m.prevFeedFormFocus()
+	case tea.KeyDown, tea.KeyTab:
+		return m, m.nextFeedFormFocus()
+	}
+
+	// Handle text input updates
+	var cmd tea.Cmd
+	switch m.feedFormFocus {
+	case 0:
+		m.feedName, cmd = m.feedName.Update(msg)
+	case 1:
+		m.feedDescription, cmd = m.feedDescription.Update(msg)
+	case 2:
+		m.feedURL, cmd = m.feedURL.Update(msg)
+	case 3:
+		m.feedCategory, cmd = m.feedCategory.Update(msg)
+	case 4:
+		m.feedEventName, cmd = m.feedEventName.Update(msg)
+	case 5:
+		m.feedSubMsg, cmd = m.feedSubMsg.Update(msg)
+	case 6:
+		m.feedSystemPrompt, cmd = m.feedSystemPrompt.Update(msg)
+	}
+	cmds = append(cmds, cmd)
+
+	return m, tea.Batch(cmds...)
+}
+
 func (m *model) nextFeedFormFocus() tea.Cmd {
 	inputs := []struct {
 		input *textinput.Model
@@ -1531,6 +1658,8 @@ func (m model) viewContent() string {
 		return m.viewFeedDetail()
 	case screenRegisterFeed:
 		return m.viewRegisterFeed()
+	case screenEditFeed:
+		return m.viewEditFeed()
 	case screenFeeds:
 		return m.viewMyFeeds()
 	case screenAPI:
@@ -1657,6 +1786,7 @@ func (m model) viewMyFeeds() string {
 	instructBuilder.WriteString(lipgloss.NewStyle().Foreground(brightCyanColor).Render("Actions"))
 	instructBuilder.WriteString("\n")
 	instructBuilder.WriteString("  s        Sub/Unsub\n")
+	instructBuilder.WriteString("  e        Edit feed\n")
 	instructBuilder.WriteString("  r        Reconnect to WS\n")
 	instructBuilder.WriteString("  Shift+D  Delete my feed\n")
 	instructBuilder.WriteString("  l        Logout\n")
@@ -1869,31 +1999,20 @@ func (m model) viewMyFeeds() string {
 		// Get per-feed prompt (view-only version)
 		feedPrompt := m.getPrompt(feed.ID)
 
-		// Wrap the prompt text to fit in the panel
-		promptWidth := aiColWidth - 12 // account for padding, border, and prefix
+		// Update width to fit panel
+		promptWidth := aiColWidth - 12
 		if promptWidth < 20 {
 			promptWidth = 20
 		}
+		feedPrompt.SetWidth(promptWidth)
 
-		promptValue := feedPrompt.View()
 		if m.aiFocused {
-			// When focused, show the full input with cursor
-			aiBuilder.WriteString(promptValue)
+			feedPrompt.Focus()
 		} else {
-			// When not focused, show wrapped prompt text
-			actualValue := feedPrompt.Value()
-			if actualValue == "" {
-				aiBuilder.WriteString(lipgloss.NewStyle().Foreground(grayColor).Render(feedPrompt.Placeholder))
-			} else {
-				// Wrap the prompt text if it's too long
-				if len(actualValue) > promptWidth {
-					wrapped := wrapText(actualValue, promptWidth)
-					aiBuilder.WriteString(lipgloss.NewStyle().Foreground(whiteColor).Render(wrapped))
-				} else {
-					aiBuilder.WriteString(lipgloss.NewStyle().Foreground(whiteColor).Render(actualValue))
-				}
-			}
+			feedPrompt.Blur()
 		}
+		
+		aiBuilder.WriteString(feedPrompt.View())
 		aiBuilder.WriteString("\n\n")
 
 		// AI Controls hint - updated with pause info
@@ -2047,6 +2166,55 @@ func (m model) viewRegisterFeed() string {
 	if m.loading {
 		builder.WriteString("\n")
 		builder.WriteString(fmt.Sprintf("%s Creating feed...", m.spinner.View()))
+	}
+	if m.errorMessage != "" {
+		builder.WriteString("\n")
+		builder.WriteString(lipgloss.NewStyle().Foreground(redColor).Render(m.errorMessage))
+	}
+
+	return contentStyle.Render(builder.String())
+}
+
+func (m model) viewEditFeed() string {
+	builder := strings.Builder{}
+	builder.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyanColor).Render("✏️ Edit Feed"))
+	builder.WriteString("\n\n")
+
+	labels := []string{
+		"Feed Name *",
+		"Description",
+		"WebSocket URL *",
+		"Category",
+		"Event Name",
+		"Subscription Message (JSON)",
+		"AI System Prompt",
+	}
+	inputs := []*textinput.Model{
+		&m.feedName,
+		&m.feedDescription,
+		&m.feedURL,
+		&m.feedCategory,
+		&m.feedEventName,
+		&m.feedSubMsg,
+		&m.feedSystemPrompt,
+	}
+
+	for i, label := range labels {
+		labelStyle := lipgloss.NewStyle().Foreground(dimCyanColor)
+		if i == m.feedFormFocus {
+			labelStyle = lipgloss.NewStyle().Foreground(cyanColor).Bold(true)
+		}
+		builder.WriteString(labelStyle.Render(label + ": "))
+		builder.WriteString(inputs[i].View())
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("\n")
+	builder.WriteString(lipgloss.NewStyle().Foreground(dimCyanColor).Render("↑↓ navigate | Enter save | Esc cancel | * required"))
+
+	if m.loading {
+		builder.WriteString("\n")
+		builder.WriteString(fmt.Sprintf("%s Updating feed...", m.spinner.View()))
 	}
 	if m.errorMessage != "" {
 		builder.WriteString("\n")
@@ -2608,6 +2776,15 @@ func createFeedCmd(client *api.Client, name, description, url, category, eventNa
 	}
 }
 
+func updateFeedCmd(client *api.Client, feedID string, updates map[string]interface{}) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		feed, err := client.UpdateFeed(ctx, feedID, updates)
+		return feedUpdateMsg{Feed: feed, Err: err}
+	}
+}
+
 func deleteFeedCmd(client *api.Client, feedID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -2622,15 +2799,16 @@ var aiIntervalOptions = []int{5, 10, 30, 60}
 
 // getOrCreatePrompt gets the prompt for a feed, creating a new one if it doesn't exist
 // NOTE: Uses pointer receiver to allow modification
-func (m *model) getOrCreatePrompt(feedID string) textinput.Model {
+func (m *model) getOrCreatePrompt(feedID string) textarea.Model {
 	if prompt, ok := m.aiPrompts[feedID]; ok {
 		return prompt
 	}
 	// Create new prompt for this feed
-	newPrompt := textinput.New()
+	newPrompt := textarea.New()
 	newPrompt.Placeholder = "Enter a prompt to start AI analysis..."
-	newPrompt.CharLimit = 500
-	newPrompt.Width = 50
+	newPrompt.SetWidth(50)
+	newPrompt.SetHeight(3)
+	newPrompt.ShowLineNumbers = false
 	newPrompt.Prompt = "" // Remove default > prefix since we add our own
 	m.aiPrompts[feedID] = newPrompt
 	return newPrompt
@@ -2638,14 +2816,18 @@ func (m *model) getOrCreatePrompt(feedID string) textinput.Model {
 
 // getPrompt returns the prompt for a feed if it exists, or creates a default view-only version
 // NOTE: Uses value receiver for view functions - does NOT persist new prompts
-func (m model) getPrompt(feedID string) textinput.Model {
+func (m model) getPrompt(feedID string) textarea.Model {
 	if prompt, ok := m.aiPrompts[feedID]; ok {
 		return prompt
 	}
 	// Return a new prompt for display purposes only
-	newPrompt := textinput.New()
+	newPrompt := textarea.New()
 	newPrompt.Placeholder = "Enter a prompt to start AI analysis..."
-	newPrompt.CharLimit = 500
+	newPrompt.SetWidth(50)
+	newPrompt.SetHeight(3)
+	newPrompt.ShowLineNumbers = false
+	return newPrompt
+}
 	newPrompt.Width = 50
 	newPrompt.Prompt = ""
 	return newPrompt

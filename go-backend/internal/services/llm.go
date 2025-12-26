@@ -258,14 +258,40 @@ func (s *LLMService) Query(ctx context.Context, req QueryRequest) (*QueryRespons
 		}, nil
 	}
 
-	// Build context string from feed data
-	contextJSON, _ := json.MarshalIndent(feedCtx.Entries, "", "  ")
+	// OPTIMIZATION: Convert JSON entries to CSV-like format to save tokens
+	var contextData string
+	if len(feedCtx.Entries) > 0 {
+		// 1. Collect all unique keys from the first entry (assuming consistent schema)
+		// For robustness, we could check all, but first is usually sufficient for streams
+		var keys []string
+		for k := range feedCtx.Entries[0] {
+			keys = append(keys, k)
+		}
+
+		// 2. Build Header
+		var sb strings.Builder
+		sb.WriteString(strings.Join(keys, ", "))
+		sb.WriteString("\n")
+
+		// 3. Build Rows
+		for _, entry := range feedCtx.Entries {
+			var values []string
+			for _, k := range keys {
+				val := entry[k]
+				// Simple formatting for values
+				values = append(values, fmt.Sprintf("%v", val))
+			}
+			sb.WriteString(strings.Join(values, ", "))
+			sb.WriteString("\n")
+		}
+		contextData = sb.String()
+	}
 
 	// Build system prompt
 	systemPrompt := req.SystemPrompt
 	if systemPrompt == "" {
 		systemPrompt = fmt.Sprintf(`You are an AI assistant analyzing real-time streaming data from feed "%s".
-Answer questions based ONLY on the provided JSON data context. Be concise and accurate.
+Answer questions based ONLY on the provided tabular data context. Be concise and accurate.
 If the data doesn't contain information to answer the question, say so clearly.`, feedCtx.FeedName)
 	}
 
@@ -274,7 +300,7 @@ If the data doesn't contain information to answer the question, say so clearly.`
 
 %s
 
-Question: %s`, string(contextJSON), req.Question)
+Question: %s`, contextData, req.Question)
 
 	// Call the provider
 	messages := []ChatMessage{
@@ -321,20 +347,39 @@ func (s *LLMService) StreamQuery(ctx context.Context, req QueryRequest, tokenCha
 		}, nil
 	}
 
-	// Build context
-	contextJSON, _ := json.MarshalIndent(feedCtx.Entries, "", "  ")
+	// OPTIMIZATION: Convert JSON entries to CSV-like format to save tokens
+	var contextData string
+	if len(feedCtx.Entries) > 0 {
+		var keys []string
+		for k := range feedCtx.Entries[0] {
+			keys = append(keys, k)
+		}
+		var sb strings.Builder
+		sb.WriteString(strings.Join(keys, ", "))
+		sb.WriteString("\n")
+		for _, entry := range feedCtx.Entries {
+			var values []string
+			for _, k := range keys {
+				val := entry[k]
+				values = append(values, fmt.Sprintf("%v", val))
+			}
+			sb.WriteString(strings.Join(values, ", "))
+			sb.WriteString("\n")
+		}
+		contextData = sb.String()
+	}
 
 	systemPrompt := req.SystemPrompt
 	if systemPrompt == "" {
 		systemPrompt = fmt.Sprintf(`You are an AI assistant analyzing real-time streaming data from feed "%s".
-Answer questions based ONLY on the provided JSON data context. Be concise and accurate.`, feedCtx.FeedName)
+Answer questions based ONLY on the provided tabular data context. Be concise and accurate.`, feedCtx.FeedName)
 	}
 
 	userPrompt := fmt.Sprintf(`Here is the recent streaming data (newest first):
 
 %s
 
-Question: %s`, string(contextJSON), req.Question)
+Question: %s`, contextData, req.Question)
 
 	// Build messages
 	messages := []ChatMessage{

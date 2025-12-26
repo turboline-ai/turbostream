@@ -555,6 +555,25 @@ func (m *Manager) ConnectFeed(feed models.WebSocketFeed) error {
 	return nil
 }
 
+// StopFeed stops the websocket connection for a given feed
+func (m *Manager) StopFeed(feedID string) {
+	m.feedMu.Lock()
+	defer m.feedMu.Unlock()
+
+	if fc, exists := m.feedConns[feedID]; exists {
+		// Check if channel is already closed to avoid panic
+		select {
+		case <-fc.stop:
+			// already closed
+		default:
+			close(fc.stop)
+		}
+		// We don't delete here because readLoop's defer will handle it
+		// and we want to avoid race conditions or double deletes
+		log.Printf("stopped feed %s", feedID)
+	}
+}
+
 func (m *Manager) ensureFeedConnection(feedID string) {
 	if m.marketplace == nil {
 		return

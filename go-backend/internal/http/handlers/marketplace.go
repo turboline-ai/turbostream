@@ -238,6 +238,10 @@ func (h *MarketplaceHandler) deleteFeed(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
+
+	// Stop the feed connection if it's active
+	h.Sockets.StopFeed(idStr)
+
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Feed deleted"})
 }
 
