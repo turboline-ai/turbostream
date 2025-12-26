@@ -357,9 +357,9 @@ type model struct {
 	feedFormFocus    int
 
 	// AI Analysis panel (per-feed state)
-	aiPrompts         map[string]textarea.Model // feedID -> prompt input (per-feed prompts)
-	aiAutoMode        bool                      // true = auto query at interval, false = manual
-	aiInterval        int                       // seconds between auto queries (5, 10, 30, 60)
+	aiPrompts         map[string]textarea.Model  // feedID -> prompt input (per-feed prompts)
+	aiAutoMode        bool                       // true = auto query at interval, false = manual
+	aiInterval        int                        // seconds between auto queries (5, 10, 30, 60)
 	aiIntervalIdx     int                        // index into interval options
 	aiResponses       map[string]string          // feedID -> current AI response (for streaming)
 	aiOutputHistories map[string][]aiOutputEntry // feedID -> history of AI outputs (last 10)
@@ -939,11 +939,11 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Quit on 'q' only if not in an input mode
 	if msg.String() == "q" {
-		isInputMode := m.screen == screenLogin || 
-			m.screen == screenRegisterFeed || 
-			m.screen == screenEditFeed || 
+		isInputMode := m.screen == screenLogin ||
+			m.screen == screenRegisterFeed ||
+			m.screen == screenEditFeed ||
 			m.aiFocused
-		
+
 		if !isInputMode {
 			if m.wsClient != nil {
 				m.wsClient.Close()
@@ -2011,7 +2011,7 @@ func (m model) viewMyFeeds() string {
 		} else {
 			feedPrompt.Blur()
 		}
-		
+
 		aiBuilder.WriteString(feedPrompt.View())
 		aiBuilder.WriteString("\n\n")
 
@@ -2826,10 +2826,6 @@ func (m model) getPrompt(feedID string) textarea.Model {
 	newPrompt.SetWidth(50)
 	newPrompt.SetHeight(3)
 	newPrompt.ShowLineNumbers = false
-	return newPrompt
-}
-	newPrompt.Width = 50
-	newPrompt.Prompt = ""
 	return newPrompt
 }
 
