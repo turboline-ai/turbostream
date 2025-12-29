@@ -64,9 +64,14 @@ func (s *MarketplaceService) UpdateFeed(ctx context.Context, id primitive.Object
 	return s.GetFeedByID(ctx, id.Hex())
 }
 
-// DeleteFeed removes a feed from the marketplace
+// DeleteFeed removes a feed from the marketplace and all associated subscriptions
 func (s *MarketplaceService) DeleteFeed(ctx context.Context, id primitive.ObjectID) error {
-	_, err := s.feeds().DeleteOne(ctx, bson.M{"_id": id})
+	// Delete the feed
+	if _, err := s.feeds().DeleteOne(ctx, bson.M{"_id": id}); err != nil {
+		return err
+	}
+	// Delete all subscriptions to this feed
+	_, err := s.subscriptions().DeleteMany(ctx, bson.M{"feedId": id.Hex()})
 	return err
 }
 

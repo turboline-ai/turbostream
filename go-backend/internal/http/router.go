@@ -58,7 +58,7 @@ func BuildEngine(deps RouterDeps) *gin.Engine {
 
 	// LLM routes
 	if deps.LLM != nil {
-		llmHandler := handlers.NewLLMHandler(deps.LLM)
+		llmHandler := handlers.NewLLMHandler(deps.LLM, deps.Sockets)
 		llmPublic := router.Group("/api/llm")
 		{
 			llmPublic.GET("/providers", llmHandler.GetProviders)
