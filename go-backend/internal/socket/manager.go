@@ -256,6 +256,7 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 		}))
 
 	case "subscribe-feed":
+		// Subscribe to raw feed data only
 		var payload struct {
 			UserID string `json:"userId"`
 			FeedID string `json:"feedId"`
@@ -264,11 +265,44 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 			client.send(makeMessage("subscription-error", map[string]string{"error": "invalid payload"}))
 			return
 		}
-		room := feedRoom(payload.FeedID)
+		room := dataRoom(payload.FeedID)
 		m.rooms.Join(room, client)
 		m.trackSubscriber(payload.FeedID, client)
-		log.Printf("✓ client subscribed to feed %s (room: %s)", payload.FeedID, room)
-		client.send(makeMessage("subscription-success", map[string]string{"feedId": payload.FeedID}))
+		log.Printf("✓ client subscribed to feed data %s (room: %s)", payload.FeedID, room)
+		client.send(makeMessage("subscription-success", map[string]string{"feedId": payload.FeedID, "type": "feed-data"}))
+		go m.ensureFeedConnection(payload.FeedID)
+
+	case "subscribe-llm":
+		// Subscribe to LLM output only
+		var payload struct {
+			UserID string `json:"userId"`
+			FeedID string `json:"feedId"`
+		}
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil || payload.FeedID == "" {
+			client.send(makeMessage("subscription-error", map[string]string{"error": "invalid payload"}))
+			return
+		}
+		room := llmRoom(payload.FeedID)
+		m.rooms.Join(room, client)
+		log.Printf("✓ client subscribed to LLM output %s (room: %s)", payload.FeedID, room)
+		client.send(makeMessage("subscription-success", map[string]string{"feedId": payload.FeedID, "type": "llm-only"}))
+
+	case "subscribe-all":
+		// Subscribe to both feed data and LLM output
+		var payload struct {
+			UserID string `json:"userId"`
+			FeedID string `json:"feedId"`
+		}
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil || payload.FeedID == "" {
+			client.send(makeMessage("subscription-error", map[string]string{"error": "invalid payload"}))
+			return
+		}
+		// Join both rooms
+		m.rooms.Join(dataRoom(payload.FeedID), client)
+		m.rooms.Join(llmRoom(payload.FeedID), client)
+		m.trackSubscriber(payload.FeedID, client)
+		log.Printf("✓ client subscribed to all %s (data + llm)", payload.FeedID)
+		client.send(makeMessage("subscription-success", map[string]string{"feedId": payload.FeedID, "type": "all"}))
 		go m.ensureFeedConnection(payload.FeedID)
 
 	case "unsubscribe-feed":
@@ -280,8 +314,9 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 			client.send(makeMessage("unsubscription-error", map[string]string{"error": "invalid payload"}))
 			return
 		}
-		room := feedRoom(payload.FeedID)
-		m.rooms.Leave(room, client)
+		// Leave all possible rooms for this feed
+		m.rooms.Leave(dataRoom(payload.FeedID), client)
+		m.rooms.Leave(llmRoom(payload.FeedID), client)
 		m.untrackSubscriber(payload.FeedID, client)
 		client.send(makeMessage("unsubscription-success", map[string]string{"feedId": payload.FeedID}))
 
@@ -374,6 +409,20 @@ func feedRoom(feedID string) string {
 	return "feed:" + feedID
 }
 
+func llmRoom(feedID string) string {
+	return "llm:" + feedID
+}
+
+func dataRoom(feedID string) string {
+	return "data:" + feedID
+}
+
+// BroadcastToRoom sends a message to all clients in a specific room
+func (m *Manager) BroadcastToRoom(room string, eventType string, payload interface{}) {
+	msg := makeMessage(eventType, payload)
+	m.rooms.Broadcast(room, msg)
+}
+
 func makeMessage(eventType string, payload interface{}) WSMessage {
 	if payload == nil {
 		return WSMessage{Type: eventType}
@@ -386,7 +435,7 @@ func makeMessage(eventType string, payload interface{}) WSMessage {
 	return WSMessage{Type: eventType, Payload: data}
 }
 
-// BroadcastFeedData sends feed updates to all listening clients.
+// BroadcastFeedData sends feed updates to clients subscribed to feed data.
 func (m *Manager) BroadcastFeedData(feed models.WebSocketFeed, data interface{}, eventName string) {
 	payload := map[string]interface{}{
 		"feedId":    feed.ID.Hex(),
@@ -401,9 +450,24 @@ func (m *Manager) BroadcastFeedData(feed models.WebSocketFeed, data interface{},
 		m.llm.AddFeedData(feed.ID.Hex(), feed.Name, data)
 	}
 
-	room := feedRoom(feed.ID.Hex())
-	log.Printf("📡 broadcasting to room %s (feed: %s)", room, feed.Name)
+	// Broadcast to data room only (not llm room)
+	room := dataRoom(feed.ID.Hex())
+	log.Printf("📡 broadcasting feed-data to room %s (feed: %s)", room, feed.Name)
 	m.rooms.Broadcast(room, makeMessage("feed-data", payload))
+}
+
+// BroadcastLLMOutput sends LLM analysis to clients subscribed to LLM output.
+func (m *Manager) BroadcastLLMOutput(feedID string, answer string, provider string) {
+	payload := map[string]interface{}{
+		"feedId":    feedID,
+		"answer":    answer,
+		"provider":  provider,
+		"timestamp": time.Now().UTC(),
+	}
+
+	room := llmRoom(feedID)
+	log.Printf("🤖 broadcasting llm-broadcast to room %s", room)
+	m.rooms.Broadcast(room, makeMessage("llm-broadcast", payload))
 }
 
 // ConnectFeed opens a websocket connection to the external feed (basic websocket only) and broadcasts messages to subscribers.
@@ -489,6 +553,25 @@ func (m *Manager) ConnectFeed(feed models.WebSocketFeed) error {
 
 	go m.readLoop(feed, conn, stop)
 	return nil
+}
+
+// StopFeed stops the websocket connection for a given feed
+func (m *Manager) StopFeed(feedID string) {
+	m.feedMu.Lock()
+	defer m.feedMu.Unlock()
+
+	if fc, exists := m.feedConns[feedID]; exists {
+		// Check if channel is already closed to avoid panic
+		select {
+		case <-fc.stop:
+			// already closed
+		default:
+			close(fc.stop)
+		}
+		// We don't delete here because readLoop's defer will handle it
+		// and we want to avoid race conditions or double deletes
+		log.Printf("stopped feed %s", feedID)
+	}
 }
 
 func (m *Manager) ensureFeedConnection(feedID string) {
@@ -736,14 +819,18 @@ func (m *Manager) handleLLMStreamQuery(client *Client, feedID, question, provide
 			}
 		}
 
-		// Send completion message
-		client.send(makeMessage("llm-complete", map[string]interface{}{
+		// Send completion message to the requester
+		completionMsg := makeMessage("llm-complete", map[string]interface{}{
 			"answer":     resp.Answer,
 			"provider":   resp.Provider,
 			"feedId":     resp.FeedID,
 			"durationMs": resp.Duration,
 			"requestId":  requestID,
-		}))
+		})
+		client.send(completionMsg)
+
+		// Broadcast to LLM subscribers
+		m.BroadcastLLMOutput(feedID, resp.Answer, resp.Provider)
 	}()
 
 	// Stream tokens to client

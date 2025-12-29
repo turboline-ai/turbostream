@@ -12,6 +12,16 @@ import (
 	"time"
 )
 
+// HTTPError wraps the status code and body of an error response.
+type HTTPError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("HTTP %d: %s", e.StatusCode, e.Body)
+}
+
 // Client is a thin wrapper around the Go backend REST API.
 type Client struct {
 	baseURL    string
@@ -97,6 +107,19 @@ func (c *Client) Login(ctx context.Context, email, password, totp string) (strin
 		RequiresTwoFactor bool   `json:"requiresTwoFactor"`
 	}
 	if err := c.do(ctx, http.MethodPost, "/api/auth/login", payload, &resp); err != nil {
+		var httpErr *HTTPError
+		if errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusUnauthorized {
+			var errResp struct {
+				RequiresTwoFactor bool   `json:"requiresTwoFactor"`
+				Message           string `json:"message"`
+			}
+			if jsonErr := json.Unmarshal([]byte(httpErr.Body), &errResp); jsonErr == nil {
+				if errResp.RequiresTwoFactor {
+					return "", nil, errors.New("2FA code required. Please enter your TOTP code.")
+				}
+				return "", nil, errors.New(errResp.Message)
+			}
+		}
 		return "", nil, err
 	}
 	if !resp.Success {
@@ -262,6 +285,21 @@ func (c *Client) CreateFeed(ctx context.Context, name, description, url, categor
 	return resp.Data, nil
 }
 
+func (c *Client) UpdateFeed(ctx context.Context, feedID string, updates map[string]interface{}) (*Feed, error) {
+	var resp struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+		Data    *Feed  `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodPut, "/api/marketplace/feeds/"+feedID, updates, &resp); err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, errors.New(resp.Message)
+	}
+	return resp.Data, nil
+}
+
 func (c *Client) DeleteFeed(ctx context.Context, feedID string) error {
 	var resp struct {
 		Success bool   `json:"success"`
@@ -309,7 +347,7 @@ func (c *Client) do(ctx context.Context, method, path string, payload interface{
 	}
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		return &HTTPError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(data))}
 	}
 
 	if out != nil {

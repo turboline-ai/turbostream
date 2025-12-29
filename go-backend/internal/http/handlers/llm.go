@@ -6,16 +6,18 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/turboline-ai/turbostream/go-backend/internal/services"
+	"github.com/turboline-ai/turbostream/go-backend/internal/socket"
 )
 
 // LLMHandler handles LLM-related HTTP requests
 type LLMHandler struct {
-	llm *services.LLMService
+	llm     *services.LLMService
+	sockets *socket.Manager
 }
 
 // NewLLMHandler creates a new LLM handler
-func NewLLMHandler(llm *services.LLMService) *LLMHandler {
-	return &LLMHandler{llm: llm}
+func NewLLMHandler(llm *services.LLMService, sockets *socket.Manager) *LLMHandler {
+	return &LLMHandler{llm: llm, sockets: sockets}
 }
 
 // GetProviders returns available LLM providers
@@ -107,6 +109,11 @@ func (h *LLMHandler) Query(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Broadcast the result to LLM subscribers
+	if h.sockets != nil {
+		h.sockets.BroadcastLLMOutput(req.FeedID, resp.Answer, resp.Provider)
 	}
 
 	c.JSON(http.StatusOK, resp)

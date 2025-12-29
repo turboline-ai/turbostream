@@ -2,9 +2,9 @@
 
 ![Banner](https://turbocdn.blob.core.windows.net/blog-images/terminal-ui.png)
 
-**Real-time data streaming platform with AI-powered analysis**
+**Real-time data stream monitoring with AI-powered analysis**
 
-TurboStream is an open-source platform for consuming, analyzing, and visualizing real-time data feeds. It combines a high-performance Go backend with a feature-rich terminal UI. 
+TurboStream is an open-source terminal UI for monitoring high-velocity WebSocket streams and selectively analyzing them with LLMs in real time.
 
 *Note: Commercial version of this tool includes a modern web-based interface.*
 
