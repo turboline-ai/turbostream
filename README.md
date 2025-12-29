@@ -55,7 +55,7 @@ The platform is designed for high throughput, low latency, and extensibility.
 │                             │                                           │
 │                    ┌────────┴────────┐                                  │
 │                    │   go-backend    │                                  │
-│                    │  REST + Socket  │                                  │
+│                    │    REST + WS    │                                  │
 │                    └────────┬────────┘                                  │
 │                             │                                           │
 │                    ┌────────┴────────┐                                  │
@@ -79,8 +79,8 @@ The core API server providing REST endpoints and WebSocket connections for real-
 **Features:**
 - JWT-based authentication with 2FA support
 - Marketplace REST API for feed discovery and management (for developer integration)
-- Socket.io server for real-time feed streaming
-- AI integration for data analysis
+- Native WebSocket server for real-time feed streaming
+- AI integration with **TSLN (Time-Series Lean Notation)** optimization for efficient token usage
 
 **Documentation:** [go-backend/README.md](go-backend/README.md)
 

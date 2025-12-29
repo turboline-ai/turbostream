@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/turboline-ai/tsln-golang"
 	"github.com/turboline-ai/turbostream/go-backend/internal/config"
 )
 
@@ -258,40 +259,56 @@ func (s *LLMService) Query(ctx context.Context, req QueryRequest) (*QueryRespons
 		}, nil
 	}
 
-	// OPTIMIZATION: Convert JSON entries to CSV-like format to save tokens
+	// OPTIMIZATION: Convert JSON entries to TSLN format to save tokens
 	var contextData string
 	if len(feedCtx.Entries) > 0 {
-		// 1. Collect all unique keys from the first entry (assuming consistent schema)
-		// For robustness, we could check all, but first is usually sufficient for streams
-		var keys []string
-		for k := range feedCtx.Entries[0] {
-			keys = append(keys, k)
-		}
-
-		// 2. Build Header
-		var sb strings.Builder
-		sb.WriteString(strings.Join(keys, ", "))
-		sb.WriteString("\n")
-
-		// 3. Build Rows
+		var points []tsln.BufferedDataPoint
 		for _, entry := range feedCtx.Entries {
-			var values []string
-			for _, k := range keys {
-				val := entry[k]
-				// Simple formatting for values
-				values = append(values, fmt.Sprintf("%v", val))
+			// Clone entry to avoid modifying the original source
+			data := make(map[string]interface{})
+			var ts time.Time
+
+			for k, v := range entry {
+				if k == "_timestamp" {
+					if tStr, ok := v.(string); ok {
+						parsed, err := time.Parse(time.RFC3339, tStr)
+						if err == nil {
+							ts = parsed
+						}
+					}
+				} else {
+					data[k] = v
+				}
 			}
-			sb.WriteString(strings.Join(values, ", "))
-			sb.WriteString("\n")
+
+			// If no timestamp found, default to now
+			if ts.IsZero() {
+				ts = time.Now()
+			}
+
+			points = append(points, tsln.BufferedDataPoint{
+				Timestamp: ts,
+				Data:      data,
+			})
 		}
-		contextData = sb.String()
+
+		// Convert to TSLN
+		result, err := tsln.ConvertToTSLN(points, nil)
+		if err != nil {
+			// Fallback to JSON if TSLN fails
+			log.Printf("⚠️ TSLN conversion failed: %v", err)
+			bytes, _ := json.Marshal(feedCtx.Entries)
+			contextData = string(bytes)
+		} else {
+			contextData = result.TSLN
+		}
 	}
 
 	// Build system prompt
 	systemPrompt := req.SystemPrompt
 	if systemPrompt == "" {
 		systemPrompt = fmt.Sprintf(`You are an AI assistant analyzing real-time streaming data from feed "%s".
-Answer questions based ONLY on the provided tabular data context. Be concise and accurate.
+Answer questions based ONLY on the provided data context (in TSLN format). Be concise and accurate.
 If the data doesn't contain information to answer the question, say so clearly.`, feedCtx.FeedName)
 	}
 
