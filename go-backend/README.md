@@ -7,6 +7,7 @@ This folder contains a high-performance Go rewrite of the original Node/Express 
 - **Marketplace**: Full CRUD for feeds, search/browse capabilities, subscriptions, and data submission.
 - **Real-time Updates**: Native WebSocket server (at `/ws`) for real-time feed data and events, replacing the legacy Socket.io implementation.
 - **Settings**: Global category management and system settings.
+- **Token Optimization**: Automatically converts JSON feed data to **TSLN (Time-Series Lean Notation)** format before sending to LLMs to minimize token usage and costs.
 - **Health Check**: Endpoint at `/health` for monitoring.
 - **Multi-provider LLM support**: "Bring Your Own Model" (BYOM) architecture supporting multiple AI providers with streaming response capabilities.
 
