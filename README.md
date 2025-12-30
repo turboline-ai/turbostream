@@ -15,7 +15,6 @@ TurboStream is an open-source terminal UI for monitoring high-velocity WebSocket
 - [Overview](#overview)
 - [How TurboStream Works (End-to-End)](#how-turbostream-works-end-to-end)
 - [Product Screens & How Developers Use Them](#product-screens--how-developers-use-them)
-- [When to Use TurboStream](#when-to-use-turbostream)
 - [Architecture](#architecture)
 - [Components](#components)
 - [Quick Start](#quick-start)
@@ -38,6 +37,15 @@ TurboStream enables developers and data engineers to:
 - **Monitor feed health and performance** through comprehensive observability dashboards
 
 The platform is designed for high throughput, low latency, and extensibility.
+
+### When to Use TurboStream
+
+Use TurboStream when:
+
+*   You have live data that never stops
+*   You want AI insights while data is flowing
+*   You care about latency, cost, and correctness
+*   You want observability, not black boxes
 
 ### How TurboStream Works (End-to-End)
 
@@ -141,22 +149,6 @@ The Help section is designed for developers new to:
 *   WebSocket streaming
 *   Real-time data
 *   LLM context management
-
-It includes:
-
-*   Conceptual explanations
-*   Metric definitions
-*   Usage guidance
-*   Best practices for prompts and performance
-
-### When to Use TurboStream
-
-Use TurboStream when:
-
-*   You have live data that never stops
-*   You want AI insights while data is flowing
-*   You care about latency, cost, and correctness
-*   You want observability, not black boxes
 
 *Note: Commercial version of this tool includes a modern web-based interface.*
 
