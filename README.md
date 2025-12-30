@@ -2,17 +2,20 @@
 
 ![Banner](https://turbocdn.blob.core.windows.net/blog-images/terminal-ui.png)
 
+[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
+
 **Real-time data stream monitoring with AI-powered analysis**
 
 TurboStream is an open-source terminal UI for monitoring high-velocity WebSocket streams and selectively analyzing them with LLMs in real time.
-
-*Note: Commercial version of this tool includes a modern web-based interface.*
 
 ---
 
 ## Table of Contents
 
 - [Overview](#overview)
+- [How TurboStream Works (End-to-End)](#how-turbostream-works-end-to-end)
+- [Product Screens & How Developers Use Them](#product-screens--how-developers-use-them)
+- [When to Use TurboStream](#when-to-use-turbostream)
 - [Architecture](#architecture)
 - [Components](#components)
 - [Quick Start](#quick-start)
@@ -33,9 +36,129 @@ TurboStream enables developers and data engineers to:
 - **Subscribe to real-time data feeds** from various sources via WebSocket connections
 - **Apply AI-powered analysis** to streaming data with configurable prompts
 - **Monitor feed health and performance** through comprehensive observability dashboards
-- **Manage feeds through a marketplace** where users can publish and discover data sources
 
 The platform is designed for high throughput, low latency, and extensibility.
+
+### How TurboStream Works (End-to-End)
+
+```text
+WebSocket Feed (Fast Producer)
+        │
+        ▼
+┌───────────────────────┐
+│  TurboStream Ingest   │
+│  + Buffering          │
+│  + Sampling           │
+│  + Context Window     │
+└─────────┬─────────────┘
+          │
+          ▼
+┌───────────────────────┐
+│  LLM Analysis Layer   │  ← Prompt applied to live stream
+│  (Slow Consumer)      │
+└─────────┬─────────────┘
+          │
+          ▼
+┌───────────────────────┐
+│  API Outputs          │  ← JSON, webhooks, notifications
+└───────────────────────┘
+```
+
+### Product Screens & How Developers Use Them
+
+#### 1) Dashboard — Real-Time Observability
+
+The Dashboard is where developers see the system working.
+
+![Dashboard](https://turbocdn.blob.core.windows.net/blog-images/dashboard.png)
+
+This screen answers questions like:
+
+*   Is my WebSocket healthy?
+*   How fast is data arriving?
+*   How much data is being dropped or evicted?
+*   How expensive and slow are my LLM calls?
+*   Am I about to blow the model context window?
+
+All metrics shown here are defined in detail in the [Dashboard Metrics Review](DASHBOARD_METRICS_REVIEW.md)
+
+#### 2) Register Feed — Connect a WebSocket
+
+This is where developers add a new real-time data source.
+
+![Feed-Registration](https://turbocdn.blob.core.windows.net/blog-images/feed registration.png)
+
+**What You Do**
+
+*   Provide a WebSocket URL
+*   Define any subscription or handshake message
+*   Add LLM system prompt for analyzing websocket data
+*   Save the feed
+
+#### 3) My Feeds — Live Data + AI Analysis
+
+This is the core interaction screen.
+
+![Analysis-Window](https://turbocdn.blob.core.windows.net/blog-images/analysis window.png)
+
+**What You See**
+
+*   Live streaming data from your WebSocket
+*   Feed-specific metrics
+*   Current LLM context size
+
+**What You Do**
+
+*   Attach a prompt to the live stream
+*   Control when and how often the LLM runs
+*   Observe AI outputs in near real time
+
+#### 4) API — Consume AI Output Anywhere
+
+TurboStream turns each feed into a programmable AI endpoint.
+
+![API](https://turbocdn.blob.core.windows.net/blog-images/API endpoints.png)
+
+**What You Get**
+
+*   REST endpoints per feed
+*   Structured AI output
+*   Predictable schemas
+
+**Easy integration into:**
+
+*   Alerting systems
+*   Slack / email / PagerDuty
+*   Dashboards
+*   Automated workflows
+
+#### 5) Help — Onboarding & Documentation
+
+![Help](https://turbocdn.blob.core.windows.net/blog-images/Help section.png)
+
+The Help section is designed for developers new to:
+
+*   WebSocket streaming
+*   Real-time data
+*   LLM context management
+
+It includes:
+
+*   Conceptual explanations
+*   Metric definitions
+*   Usage guidance
+*   Best practices for prompts and performance
+
+### When to Use TurboStream
+
+Use TurboStream when:
+
+*   You have live data that never stops
+*   You want AI insights while data is flowing
+*   You care about latency, cost, and correctness
+*   You want observability, not black boxes
+
+*Note: Commercial version of this tool includes a modern web-based interface.*
 
 ---
 
@@ -80,7 +203,7 @@ The core API server providing REST endpoints and WebSocket connections for real-
 - JWT-based authentication with 2FA support
 - Marketplace REST API for feed discovery and management (for developer integration)
 - Native WebSocket server for real-time feed streaming
-- AI integration with **TSLN (Time-Series Lean Notation)** optimization for efficient token usage
+- AI integration with [**TSLN (Time-Series Lean Notation)**](https://github.com/turboline-ai/tsln-golang) optimization for efficient token usage
 
 **Documentation:** [go-backend/README.md](go-backend/README.md)
 
@@ -207,19 +330,6 @@ We welcome contributions from the community. To contribute:
 4. **Make your changes** following our code style guidelines
 5. **Test your changes** thoroughly
 6. **Submit a pull request** with a clear description
-
-### Code Style
-
-**Go Code:**
-- Run `go fmt` and `go vet` before committing
-- Follow standard Go conventions and idioms
-- Document exported functions and types
-- Keep functions focused and testable
-
-**TypeScript/JavaScript:**
-- Use ESLint and Prettier for formatting
-- Follow existing patterns in the codebase
-- Write meaningful variable and function names
 
 ### Pull Request Guidelines
 
