@@ -86,7 +86,7 @@ All metrics shown here are defined in detail in the [Dashboard Metrics Review](D
 
 This is where developers add a new real-time data source.
 
-![Feed-Registration](https://turbocdn.blob.core.windows.net/blog-images/feed registration.png)
+![Feed-Registration](https://turbocdn.blob.core.windows.net/blog-images/feed-registration.png)
 
 **What You Do**
 
@@ -99,7 +99,7 @@ This is where developers add a new real-time data source.
 
 This is the core interaction screen.
 
-![Analysis-Window](https://turbocdn.blob.core.windows.net/blog-images/analysis window.png)
+![Analysis-Window](https://turbocdn.blob.core.windows.net/blog-images/analysis-window.png)
 
 **What You See**
 
@@ -117,7 +117,7 @@ This is the core interaction screen.
 
 TurboStream turns each feed into a programmable AI endpoint.
 
-![API](https://turbocdn.blob.core.windows.net/blog-images/API endpoints.png)
+![API](https://turbocdn.blob.core.windows.net/blog-images/API-endpoints.png)
 
 **What You Get**
 
@@ -134,7 +134,7 @@ TurboStream turns each feed into a programmable AI endpoint.
 
 #### 5) Help — Onboarding & Documentation
 
-![Help](https://turbocdn.blob.core.windows.net/blog-images/Help section.png)
+![Help](https://turbocdn.blob.core.windows.net/blog-images/Help-section.png)
 
 The Help section is designed for developers new to:
 
