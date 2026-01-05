@@ -8,6 +8,10 @@
 
 TurboStream is an open-source terminal UI for monitoring high-velocity WebSocket streams and selectively analyzing them with LLMs in real time.
 
+[![Watch the video](https://img.youtube.com/vi/wi7u57JCQ_E/maxresdefault.jpg)](https://youtu.be/wi7u57JCQ_E)
+
+### [Watch this video on YouTube](https://youtu.be/wi7u57JCQ_E)
+
 ---
 
 ## Table of Contents
