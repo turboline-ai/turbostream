@@ -107,6 +107,8 @@ This is where developers add a new real-time data source.
 *   Add LLM system prompt for analyzing websocket data
 *   Save the feed
 
+You can find example WebSocket URLs in our [WebSocket directory](https://turboline.ai/docs/websockets).
+
 #### 3) My Feeds — Live Data + AI Analysis
 
 This is the core interaction screen.
