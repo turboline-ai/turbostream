@@ -1,0 +1,14 @@
+# Explicitly use the Go provider
+providers = ["go"]
+
+# Ensure Go and Git are installed
+[phases.setup]
+nixPkgs = ["go", "git"]
+
+# Override the default build command to point to the correct main file
+[phases.build]
+cmds = ["go build -o main ./cmd/server"]
+
+# Command to start the application
+[start]
+cmd = "./main"

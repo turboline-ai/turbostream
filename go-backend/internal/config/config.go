@@ -66,7 +66,12 @@ type Config struct {
 func Load() Config {
 	_ = godotenv.Load(".env.local")
 
-	port := parseInt(getEnv("BACKEND_PORT", "7210"))
+	// Cloud platforms (Azure, Railway) inject PORT; fallback to BACKEND_PORT for local dev
+	portStr := os.Getenv("PORT")
+	if portStr == "" {
+		portStr = getEnv("BACKEND_PORT", "7210")
+	}
+	port := parseInt(portStr)
 	timeoutMS := parseInt(getEnv("REQUEST_TIMEOUT_MS", "15000"))
 	tokenQuota := parseInt64(getEnv("TOKEN_QUOTA_PER_MONTH", "1000000"))
 	llmMaxTokens := parseInt(getEnv("LLM_MAX_TOKENS", "1024"))

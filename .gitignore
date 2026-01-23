@@ -64,3 +64,6 @@ debug/
 *.bak
 *.tmp
 *.temp
+
+# Documentation (internal state diagrams)
+STATE_MACHINES.md
