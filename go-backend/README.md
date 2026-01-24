@@ -2,14 +2,96 @@
 
 This folder contains a high-performance Go rewrite of the original Node/Express backend. It provides RESTful APIs and real-time WebSocket capabilities compatible with the TurboStream frontend.
 
-## Features implemented
-- **Authentication**: JWT-based auth with register/login, password changes, 2FA (TOTP + backup codes), session management, and login-activity tracking.
-- **Marketplace**: Full CRUD for feeds, search/browse capabilities, subscriptions, and data submission.
-- **Real-time Updates**: Native WebSocket server (at `/ws`) for real-time feed data and events, replacing the legacy Socket.io implementation.
-- **Settings**: Global category management and system settings.
-- **Token Optimization**: Automatically converts JSON feed data to **TSLN (Time-Series Lean Notation)** format before sending to LLMs to minimize token usage and costs.
-- **Health Check**: Endpoint at `/health` for monitoring.
-- **Multi-provider LLM support**: "Bring Your Own Model" (BYOM) architecture supporting multiple AI providers with streaming response capabilities.
+## Features Implemented
+
+### Authentication & Security
+- JWT-based authentication with register/login endpoints
+- Password changes and session management
+- 2FA support (TOTP + backup codes)
+- Login activity tracking
+- API key authentication for WebSocket connections
+
+### WebSocket Streaming (`/ws`)
+Real-time data streaming and LLM output delivery using native WebSocket protocol (`nhooyr.io/websocket`).
+
+**Connection Flow:**
+1. Client upgrades HTTP connection to WebSocket at `/ws`
+2. Client sends `authenticate` message with JWT token
+3. Server validates token and responds with `authenticated` message
+4. Client subscribes to feeds using `subscribe-llm`, `subscribe-feed`, or `subscribe-all`
+5. Server streams data and LLM tokens in real-time
+
+**Message Types:**
+- **Authentication:** `authenticate`, `authenticated`, `auth_error`
+- **Subscriptions:** `subscribe-feed` (raw data), `subscribe-llm` (AI only), `subscribe-all` (both)
+- **LLM Streaming:** `llm-query-stream` (request), `llm-token` (streaming tokens), `llm-complete` (final response)
+- **Broadcasting:** `feed-data` (to data subscribers), `llm-broadcast` (to LLM subscribers)
+- **Keep-alive:** `ping`, `pong`
+
+**Key Features:**
+- Token-by-token streaming for real-time LLM responses
+- Room-based broadcasting (data rooms and LLM rooms per feed)
+- Thread-safe client management with `sync.Mutex`
+- Graceful connection handling and cleanup
+- Context cancellation for proper shutdown
+
+### LLM Context Management
+Intelligent feed data accumulation for AI analysis.
+
+**Context Storage:**
+- Thread-safe feed context map (`sync.RWMutex`)
+- Configurable limit via `LLM_CONTEXT_LIMIT` (default: 50 entries)
+- Newest-first ordering (prepend new data, trim old)
+- Automatic timestamp injection (`_timestamp` field)
+
+**Context Operations:**
+- `AddFeedData()`: Accumulates streaming data into context
+- `GetFeedContext()`: Returns current context for a feed
+- `ClearFeedContext()`: Removes all context for a feed
+
+**Token Optimization:**
+- Converts JSON to [TSLN (Time-Series Lean Notation)](https://github.com/turboline-ai/tsln-golang) format
+- Reduces token usage by 40-60% vs raw JSON
+- Fallback to JSON if TSLN conversion fails
+
+### Multi-Provider LLM Support (BYOM)
+"Bring Your Own Model" architecture with streaming capabilities.
+
+**Supported Providers:**
+- Azure OpenAI
+- OpenAI
+- Anthropic (Claude)
+- Google Gemini
+- Mistral
+- xAI (Grok)
+- Ollama (local models)
+
+**Capabilities:**
+- Streaming and non-streaming queries
+- Provider-specific configuration
+- Automatic provider selection via `DEFAULT_AI_PROVIDER`
+- Token usage tracking per user
+
+### Marketplace API
+REST endpoints for feed discovery and management.
+
+**Public Endpoints:**
+- Feed browsing, search, and filtering
+- Popular and recent feeds
+- Feed details and metadata
+
+**Protected Endpoints (JWT Required):**
+- Feed CRUD operations
+- Subscription management
+- Custom AI prompt configuration
+- Feed connectivity testing
+- Data submission for broadcasting
+
+### Other Features
+- **Health Check:** `/health` endpoint for monitoring
+- **Settings:** Global category management
+- **CORS:** Configurable allowed origins
+- **MongoDB Integration:** Feed and user data persistence
 
 ## Getting started
 1. Copy `.env.local.example` to `.env.local` and fill in values (Mongo, JWT, encryption key, CORS origin, etc.).

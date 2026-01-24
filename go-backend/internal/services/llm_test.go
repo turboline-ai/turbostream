@@ -400,3 +400,219 @@ func TestLLMService_ContextTimestamps(t *testing.T) {
 	require.Greater(t, len(ctx.Entries), 0)
 	assert.NotEmpty(t, ctx.Entries[0]["_timestamp"])
 }
+
+// TestAnalysisMemory_AddResult tests adding analysis results
+func TestAnalysisMemory_AddResult(t *testing.T) {
+	mem := &AnalysisMemory{
+		FeedID:  "test-feed",
+		Results: make([]AnalysisResult, 0, 3),
+		Limit:   3,
+	}
+
+	// Add first result
+	mem.AddResult("What's the price?", "The price is $100", "openai")
+	assert.Len(t, mem.Results, 1)
+	assert.Equal(t, "What's the price?", mem.Results[0].Question)
+	assert.Equal(t, "The price is $100", mem.Results[0].Answer)
+	assert.Equal(t, "openai", mem.Results[0].Provider)
+	assert.False(t, mem.Results[0].Timestamp.IsZero())
+
+	// Add second result
+	mem.AddResult("What's the trend?", "Upward trend", "anthropic")
+	assert.Len(t, mem.Results, 2)
+	// Newest should be first
+	assert.Equal(t, "What's the trend?", mem.Results[0].Question)
+	assert.Equal(t, "What's the price?", mem.Results[1].Question)
+
+	// Add third result
+	mem.AddResult("Any changes?", "Price stable", "gemini")
+	assert.Len(t, mem.Results, 3)
+	assert.Equal(t, "Any changes?", mem.Results[0].Question)
+	assert.Equal(t, "What's the trend?", mem.Results[1].Question)
+	assert.Equal(t, "What's the price?", mem.Results[2].Question)
+}
+
+// TestAnalysisMemory_Eviction tests FIFO eviction when limit exceeded
+func TestAnalysisMemory_Eviction(t *testing.T) {
+	mem := &AnalysisMemory{
+		FeedID:  "test-feed",
+		Results: make([]AnalysisResult, 0, 3),
+		Limit:   3,
+	}
+
+	// Add 3 results
+	mem.AddResult("Q1", "A1", "provider1")
+	mem.AddResult("Q2", "A2", "provider2")
+	mem.AddResult("Q3", "A3", "provider3")
+	assert.Len(t, mem.Results, 3)
+
+	// Add 4th result - should evict oldest (Q1)
+	mem.AddResult("Q4", "A4", "provider4")
+	assert.Len(t, mem.Results, 3)
+
+	// Verify order (newest first)
+	assert.Equal(t, "Q4", mem.Results[0].Question)
+	assert.Equal(t, "Q3", mem.Results[1].Question)
+	assert.Equal(t, "Q2", mem.Results[2].Question)
+
+	// Q1 should be evicted
+	for _, result := range mem.Results {
+		assert.NotEqual(t, "Q1", result.Question)
+	}
+}
+
+// TestLLMService_AnalysisMemory tests the analysis memory integration
+func TestLLMService_AnalysisMemory(t *testing.T) {
+	cfg := config.Config{
+		OpenAIAPIKey:    "test-key",
+		OpenAIModel:     "gpt-4o",
+		LLMContextLimit: 50,
+	}
+
+	svc, err := NewLLMService(cfg)
+	require.NoError(t, err)
+
+	feedID := "test-feed-123"
+
+	// Initially no analysis memory
+	results := svc.GetAnalysisMemory(feedID)
+	assert.Nil(t, results)
+
+	// Add first analysis result
+	svc.addAnalysisResult(feedID, "What's the price?", "Price is $100", "openai")
+
+	results = svc.GetAnalysisMemory(feedID)
+	require.NotNil(t, results)
+	assert.Len(t, results, 1)
+	assert.Equal(t, "What's the price?", results[0].Question)
+	assert.Equal(t, "Price is $100", results[0].Answer)
+
+	// Add second analysis result
+	svc.addAnalysisResult(feedID, "What's the trend?", "Upward", "anthropic")
+
+	results = svc.GetAnalysisMemory(feedID)
+	assert.Len(t, results, 2)
+	// Newest first
+	assert.Equal(t, "What's the trend?", results[0].Question)
+	assert.Equal(t, "What's the price?", results[1].Question)
+
+	// Add third analysis result
+	svc.addAnalysisResult(feedID, "Any changes?", "Stable", "gemini")
+
+	results = svc.GetAnalysisMemory(feedID)
+	assert.Len(t, results, 3)
+	assert.Equal(t, "Any changes?", results[0].Question)
+	assert.Equal(t, "What's the trend?", results[1].Question)
+	assert.Equal(t, "What's the price?", results[2].Question)
+
+	// Add fourth - should evict oldest
+	svc.addAnalysisResult(feedID, "Current status?", "All good", "openai")
+
+	results = svc.GetAnalysisMemory(feedID)
+	assert.Len(t, results, 3)
+	assert.Equal(t, "Current status?", results[0].Question)
+	assert.Equal(t, "Any changes?", results[1].Question)
+	assert.Equal(t, "What's the trend?", results[2].Question)
+
+	// First result "What's the price?" should be evicted
+	for _, result := range results {
+		assert.NotEqual(t, "What's the price?", result.Question)
+	}
+}
+
+// TestLLMService_AnalysisMemory_MultipleFeeds tests isolation between feeds
+func TestLLMService_AnalysisMemory_MultipleFeeds(t *testing.T) {
+	cfg := config.Config{
+		OpenAIAPIKey:    "test-key",
+		LLMContextLimit: 50,
+	}
+
+	svc, err := NewLLMService(cfg)
+	require.NoError(t, err)
+
+	feed1 := "feed-1"
+	feed2 := "feed-2"
+
+	// Add analysis to feed1
+	svc.addAnalysisResult(feed1, "Q1 for feed1", "A1", "openai")
+	svc.addAnalysisResult(feed1, "Q2 for feed1", "A2", "openai")
+
+	// Add analysis to feed2
+	svc.addAnalysisResult(feed2, "Q1 for feed2", "A1", "anthropic")
+
+	// Verify feed1 has 2 results
+	results1 := svc.GetAnalysisMemory(feed1)
+	assert.Len(t, results1, 2)
+	assert.Equal(t, "Q2 for feed1", results1[0].Question)
+	assert.Equal(t, "Q1 for feed1", results1[1].Question)
+
+	// Verify feed2 has 1 result
+	results2 := svc.GetAnalysisMemory(feed2)
+	assert.Len(t, results2, 1)
+	assert.Equal(t, "Q1 for feed2", results2[0].Question)
+
+	// Results should be isolated
+	for _, result := range results1 {
+		assert.NotContains(t, result.Question, "feed2")
+	}
+	for _, result := range results2 {
+		assert.NotContains(t, result.Question, "feed1")
+	}
+}
+
+// TestLLMService_ClearFeedContext_ClearsAnalysisMemory tests that clearing context also clears analysis memory
+func TestLLMService_ClearFeedContext_ClearsAnalysisMemory(t *testing.T) {
+	cfg := config.Config{
+		OpenAIAPIKey:    "test-key",
+		LLMContextLimit: 50,
+	}
+
+	svc, err := NewLLMService(cfg)
+	require.NoError(t, err)
+
+	feedID := "test-feed"
+
+	// Add feed context
+	svc.AddFeedData(feedID, "Test Feed", map[string]interface{}{"value": 100})
+
+	// Add analysis memory
+	svc.addAnalysisResult(feedID, "Test question", "Test answer", "openai")
+
+	// Verify both exist
+	assert.NotNil(t, svc.GetFeedContext(feedID))
+	assert.NotNil(t, svc.GetAnalysisMemory(feedID))
+
+	// Clear context
+	svc.ClearFeedContext(feedID)
+
+	// Both should be cleared
+	assert.Nil(t, svc.GetFeedContext(feedID))
+	assert.Nil(t, svc.GetAnalysisMemory(feedID))
+}
+
+// TestAnalysisMemory_TimestampOrdering tests that timestamps are properly ordered
+func TestAnalysisMemory_TimestampOrdering(t *testing.T) {
+	mem := &AnalysisMemory{
+		FeedID:  "test-feed",
+		Results: make([]AnalysisResult, 0, 3),
+		Limit:   3,
+	}
+
+	// Add results with slight delays
+	mem.AddResult("First", "Answer 1", "provider1")
+	time.Sleep(10 * time.Millisecond)
+
+	mem.AddResult("Second", "Answer 2", "provider2")
+	time.Sleep(10 * time.Millisecond)
+
+	mem.AddResult("Third", "Answer 3", "provider3")
+
+	// Verify timestamps are in descending order (newest first)
+	assert.True(t, mem.Results[0].Timestamp.After(mem.Results[1].Timestamp))
+	assert.True(t, mem.Results[1].Timestamp.After(mem.Results[2].Timestamp))
+
+	// Verify questions are in newest-first order
+	assert.Equal(t, "Third", mem.Results[0].Question)
+	assert.Equal(t, "Second", mem.Results[1].Question)
+	assert.Equal(t, "First", mem.Results[2].Question)
+}

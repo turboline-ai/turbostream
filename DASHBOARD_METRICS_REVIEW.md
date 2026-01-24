@@ -13,6 +13,54 @@ The dashboard consists of:
 
 ---
 
+## Latest Updates: LLM Context State
+
+### Two-Layer Context Architecture
+
+TurboStream now clearly distinguishes between two context layers:
+
+**1. TUI Local Cache** (displayed in "LLM Context" panel)
+- In-memory buffer of feed data stored in the terminal client
+- Used for local display and immediate analysis
+- Tracks: cache items, memory usage, age of oldest item
+- Independent from backend storage
+
+**2. Backend LLM Context** (displayed in "LLM/Tokens" panel)
+- Feed entries stored on the backend server
+- This is the actual data sent to AI models for analysis
+- Managed by `FeedContext` struct with thread-safe operations
+- Configurable limit via `LLM_CONTEXT_LIMIT` (default: 50 entries)
+- Automatically optimized with TSLN format for token efficiency
+
+### Key Context Management Features
+
+**Backend Context Storage:**
+```go
+type FeedContext struct {
+    FeedID    string                   // Feed identifier
+    FeedName  string                   // Feed display name
+    Entries   []map[string]interface{} // Feed data entries (newest first)
+    UpdatedAt time.Time                // Last update timestamp
+}
+```
+
+**Context Operations:**
+- **AddFeedData()**: Accumulates streaming data, prepends new entries, auto-trims to limit
+- **GetFeedContext()**: Thread-safe read access to current context
+- **ClearFeedContext()**: Removes all context for a feed
+
+**Token Optimization:**
+- Feed data converted to TSLN (Time-Series Lean Notation) before sending to LLM
+- Reduces token usage by 40-60% compared to raw JSON
+- Automatic fallback to JSON if TSLN conversion fails
+
+**Monitoring Context Health:**
+- `EventsInContextCurrent`: Shows how many entries are in backend context
+- `ContextUtilizationPercent`: Visual indicator of prompt tokens vs model limit
+- `CacheItemsCurrent`: Shows TUI's local cache size
+
+---
+
 ## 1. Stream / WebSocket Health Panel
 
 These metrics track the health and performance of the WebSocket connection to external data feeds.
@@ -41,15 +89,30 @@ Trend: ▁▂▃▄▅▆▇█▆▅▄▃▂▁▂▃▄▅▆▇█▆▅▄�
 
 ---
 
-## 2. 💾 LLM Context Panel (In-Memory Cache)
+## 2. 💾 LLM Context Panel (TUI Local Cache)
 
-These metrics track the TUI's local cache of recent feed entries used for LLM context.
+These metrics track the **TUI's local in-memory cache** of recent feed entries. This is separate from the backend's LLM context.
+
+### Understanding Context Layers
+
+TurboStream has two context layers:
+
+1. **TUI Local Cache** (this panel): In-memory buffer of feed data in the terminal client
+   - Used for display and local analysis
+   - Metrics: `CacheItemsCurrent`, `CacheApproxBytes`, `OldestItemAgeSeconds`
+
+2. **Backend LLM Context** (see LLM/Tokens panel): Feed entries stored on backend and sent to LLM
+   - Managed by backend's `FeedContext` (default limit: 50 entries)
+   - Metrics: `EventsInContextCurrent`
+   - Configurable via `LLM_CONTEXT_LIMIT` environment variable
+
+### TUI Cache Metrics
 
 | Metric | Field Name | Description |
 |--------|------------|-------------|
-| **Events in Context** | `CacheItemsCurrent` | Number of items currently in cache |
-| **Context Size** | `CacheApproxBytes` | Approximate memory used by cached items |
-| **Context Age** | `OldestItemAgeSeconds` | Age of oldest item in cache (how far back context goes) |
+| **Events in Context** | `CacheItemsCurrent` | Number of feed items in TUI's local cache |
+| **Context Size** | `CacheApproxBytes` | Approximate memory used by cached items (bytes) |
+| **Context Age** | `OldestItemAgeSeconds` | Age of oldest item in cache (how far back local context goes) |
 
 ### 📈 Cache Memory Sparkline
 
@@ -118,12 +181,24 @@ These metrics track AI/LLM usage and token consumption per feed.
 | **Output Tokens** | `OutputTokensTotal` | Cumulative output/response tokens used |
 | **Total Tokens** | Computed | Sum of input + output tokens |
 
-### Context Section
+### Backend LLM Context Section
+
+These metrics show the **backend's LLM context state**, which is what actually gets sent to the AI model.
 
 | Metric | Field Name | Description |
 |--------|------------|-------------|
-| **Events in Context** | `EventsInContextCurrent` | Number of feed events currently in LLM context |
+| **Events in Context** | `EventsInContextCurrent` | Number of feed entries currently in backend's LLM context (sent to AI) |
 | **Context Usage %** | `ContextUtilizationPercent` | Prompt tokens / model context limit × 100 (with visual bar) |
+
+**Backend Context Management:**
+- **Storage:** Thread-safe map with `sync.RWMutex` for concurrent access
+- **Limit:** Configurable via `LLM_CONTEXT_LIMIT` (default: 50 entries per feed)
+- **Ordering:** Newest-first (new entries prepended, old ones trimmed)
+- **Optimization:** Converted to [TSLN format](https://github.com/turboline-ai/tsln-golang) to reduce token usage by 40-60%
+- **Operations:**
+  - `AddFeedData()`: Accumulates streaming data, auto-trims to limit
+  - `GetFeedContext()`: Returns current context for a feed
+  - `ClearFeedContext()`: Removes all context for a feed
 
 ### Timing Section
 

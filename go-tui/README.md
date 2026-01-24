@@ -1,32 +1,91 @@
-# TurboStream Terminal UI (Bubble Tea)
+# TurboStream Terminal UI
 
-A Bubble Tea + Lip Gloss terminal client that speaks to the Go backend (REST + WebSocket) for real-time feed streaming with comprehensive observability dashboards.
+A terminal client built with Bubble Tea and Lip Gloss that provides real-time feed monitoring and LLM streaming capabilities.
+
+## Features
+
+### Real-Time Data Streaming
+- WebSocket connection to backend at `/ws`
+- Token-by-token LLM response streaming
+- Feed subscription management
+- Automatic reconnection handling
+
+### Observability Dashboard
+Press `d` to access the comprehensive dashboard showing:
+
+**Stream Health Panel:**
+- Connection status and uptime
+- Message throughput (rate, bytes/sec)
+- Reconnection count
+- Message rate sparkline chart
+
+**LLM Context Panel:**
+- Events in context (local cache)
+- Memory usage tracking
+- Context age (oldest item)
+- Dropped/evicted message counts
+- Cache memory sparkline chart
+
+**Payload Stats Panel:**
+- Last/average/max payload sizes
+- Size distribution histogram
+
+**LLM/Tokens Panel:**
+- Input/output token counts (last request and session totals)
+- Time to First Token (TTFT) metrics
+- Generation time with sparkline
+- Context utilization percentage
+- Events in LLM context
+- Error tracking
+
+For detailed metric definitions, see [DASHBOARD_METRICS_REVIEW.md](../DASHBOARD_METRICS_REVIEW.md).
+
+### Live Feed Monitoring
+- Feed list with connection status indicators
+- Real-time data display
+- AI analysis streaming
+- Context state visualization
 
 ## Prerequisites
 - Go 1.24+
-- Go backend running (defaults: `http://localhost:7210`, websocket at `ws://localhost:7210/ws`)
+- Go backend running at `http://localhost:7210` (or configured URL)
 
-## Env vars
-- `TURBOSTREAM_BACKEND_URL` (default `http://localhost:7210`)
-- `TURBOSTREAM_WEBSOCKET_URL` (default `ws://localhost:7210/ws`)
-- `TURBOSTREAM_TOKEN` (optional, reuse an existing JWT)
-- `TURBOSTREAM_EMAIL` (optional, pre-fill login form)
+## Environment Variables
 
-## Run
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `TURBOSTREAM_BACKEND_URL` | Backend REST API URL | `http://localhost:7210` |
+| `TURBOSTREAM_WEBSOCKET_URL` | WebSocket endpoint | `ws://localhost:7210/ws` |
+| `TURBOSTREAM_TOKEN` | Pre-configured JWT token (optional) | None |
+| `TURBOSTREAM_EMAIL` | Pre-fill login email (optional) | None |
+
+## Quick Start
+
 ```bash
 cd go-tui
-go mod tidy   # fetch deps (bubbletea, lipgloss, nhooyr websocket)
+go mod tidy   # Install dependencies
 go run .
 ```
 
-## Key bindings
-- `Enter` on login form to authenticate.
-- `d` Dashboard, `q` quit.
-- `↑/↓` navigate feeds.
-- `c` reconnect websocket if needed.
-- `Tab` cycles inputs on the login form.
+## Key Bindings
 
-The top bar shows websocket status and token usage when available.
+| Key | Action |
+|-----|--------|
+| `Enter` | Submit login form / Execute action |
+| `d` | Toggle dashboard view |
+| `q` | Quit application |
+| `↑/↓` | Navigate feed list |
+| `c` | Reconnect WebSocket |
+| `Tab` | Cycle through form inputs |
+
+## Dashboard Panels
+
+The dashboard uses **sparkline charts** to visualize metric trends over 60-second windows:
+
+- **Green sparklines**: Higher values are good (throughput, rate)
+- **Red sparklines**: Higher values are bad (latency, memory usage)
+
+Top summary bar shows: WebSocket status, msg/s, KB/s, context items, tokens, and generation time.
 
 ## License
 

@@ -65,5 +65,9 @@ debug/
 *.tmp
 *.temp
 
+# Experiments
+experiments/
+
 # Documentation (internal state diagrams)
 STATE_MACHINES.md
+

@@ -22,6 +22,44 @@ type FeedContext struct {
 	UpdatedAt time.Time                `json:"updatedAt"`
 }
 
+// AnalysisResult represents a single LLM analysis output
+type AnalysisResult struct {
+	Question  string    `json:"question"`
+	Answer    string    `json:"answer"`
+	Timestamp time.Time `json:"timestamp"`
+	Provider  string    `json:"provider"`
+}
+
+// AnalysisMemory stores the last N analysis results for a feed
+type AnalysisMemory struct {
+	FeedID  string           `json:"feedId"`
+	Results []AnalysisResult `json:"results"` // Newest first
+	Limit   int              `json:"-"`       // Max number of results to keep
+}
+
+// AddResult adds a new analysis result and maintains the limit
+func (am *AnalysisMemory) AddResult(question, answer, provider string) {
+	result := AnalysisResult{
+		Question:  question,
+		Answer:    answer,
+		Timestamp: time.Now().UTC(),
+		Provider:  provider,
+	}
+
+	// Prepend to results (newest first)
+	am.Results = append([]AnalysisResult{result}, am.Results...)
+
+	// Trim to limit
+	if len(am.Results) > am.Limit {
+		am.Results = am.Results[:am.Limit]
+	}
+}
+
+// GetResults returns all stored results (newest first)
+func (am *AnalysisMemory) GetResults() []AnalysisResult {
+	return am.Results
+}
+
 // LLMService provides LLM capabilities with multi-provider support (BYOM)
 type LLMService struct {
 	cfg         config.Config
@@ -32,16 +70,23 @@ type LLMService struct {
 	contextMu    sync.RWMutex
 	feedContexts map[string]*FeedContext
 	contextLimit int
+
+	// Analysis memory storage (last 3 results per feed)
+	analysisMu     sync.RWMutex
+	analysisMemory map[string]*AnalysisMemory
+	analysisLimit  int // Number of previous analyses to keep
 }
 
 // NewLLMService creates a new LLM service with multi-provider support
 func NewLLMService(cfg config.Config) (*LLMService, error) {
 	svc := &LLMService{
-		cfg:          cfg,
-		providers:    make(map[string]LLMProvider),
-		defaultProv:  cfg.DefaultAIProvider,
-		feedContexts: make(map[string]*FeedContext),
-		contextLimit: cfg.LLMContextLimit,
+		cfg:            cfg,
+		providers:      make(map[string]LLMProvider),
+		defaultProv:    cfg.DefaultAIProvider,
+		feedContexts:   make(map[string]*FeedContext),
+		contextLimit:   cfg.LLMContextLimit,
+		analysisMemory: make(map[string]*AnalysisMemory),
+		analysisLimit:  3, // Keep last 3 analysis results
 	}
 
 	// Register all configured providers
@@ -216,8 +261,43 @@ func (s *LLMService) GetFeedContext(feedID string) *FeedContext {
 // ClearFeedContext removes context for a feed
 func (s *LLMService) ClearFeedContext(feedID string) {
 	s.contextMu.Lock()
-	defer s.contextMu.Unlock()
 	delete(s.feedContexts, feedID)
+	s.contextMu.Unlock()
+
+	// Also clear analysis memory
+	s.analysisMu.Lock()
+	delete(s.analysisMemory, feedID)
+	s.analysisMu.Unlock()
+}
+
+// GetAnalysisMemory returns the analysis memory for a feed
+func (s *LLMService) GetAnalysisMemory(feedID string) []AnalysisResult {
+	s.analysisMu.RLock()
+	defer s.analysisMu.RUnlock()
+
+	if mem, exists := s.analysisMemory[feedID]; exists {
+		return mem.GetResults()
+	}
+	return nil
+}
+
+// addAnalysisResult stores a new analysis result in memory
+func (s *LLMService) addAnalysisResult(feedID, question, answer, provider string) {
+	s.analysisMu.Lock()
+	defer s.analysisMu.Unlock()
+
+	mem, exists := s.analysisMemory[feedID]
+	if !exists {
+		mem = &AnalysisMemory{
+			FeedID:  feedID,
+			Results: make([]AnalysisResult, 0, s.analysisLimit),
+			Limit:   s.analysisLimit,
+		}
+		s.analysisMemory[feedID] = mem
+	}
+
+	mem.AddResult(question, answer, provider)
+	log.Printf("📝 Stored analysis result for feed %s (total: %d)", feedID, len(mem.Results))
 }
 
 // QueryRequest represents a question about feed data
@@ -312,12 +392,35 @@ Answer questions based ONLY on the provided data context (in TSLN format). Be co
 If the data doesn't contain information to answer the question, say so clearly.`, feedCtx.FeedName)
 	}
 
-	// Build user prompt with context
-	userPrompt := fmt.Sprintf(`Here is the recent streaming data (newest first):
+	// Get previous analysis results
+	previousAnalysis := s.GetAnalysisMemory(req.FeedID)
+
+	// Build user prompt with previous analysis and current context
+	var userPrompt string
+	if len(previousAnalysis) > 0 {
+		var prevSection strings.Builder
+		prevSection.WriteString("Previous Analysis (for reference):\n\n")
+		for i, prev := range previousAnalysis {
+			prevSection.WriteString(fmt.Sprintf("%d. [%s] Q: %s\n   A: %s\n\n",
+				i+1,
+				prev.Timestamp.Format("15:04:05"),
+				prev.Question,
+				prev.Answer))
+		}
+
+		userPrompt = fmt.Sprintf(`%s
+Current Data (newest first):
+
+%s
+
+Question: %s`, prevSection.String(), contextData, req.Question)
+	} else {
+		userPrompt = fmt.Sprintf(`Here is the recent streaming data (newest first):
 
 %s
 
 Question: %s`, contextData, req.Question)
+	}
 
 	// Call the provider
 	messages := []ChatMessage{
@@ -329,6 +432,9 @@ Question: %s`, contextData, req.Question)
 	if err != nil {
 		return nil, fmt.Errorf("%s error: %w", provider.Name(), err)
 	}
+
+	// Store the analysis result in memory
+	s.addAnalysisResult(req.FeedID, req.Question, answer, provider.Name())
 
 	return &QueryResponse{
 		Answer:     answer,
@@ -392,11 +498,35 @@ func (s *LLMService) StreamQuery(ctx context.Context, req QueryRequest, tokenCha
 Answer questions based ONLY on the provided tabular data context. Be concise and accurate.`, feedCtx.FeedName)
 	}
 
-	userPrompt := fmt.Sprintf(`Here is the recent streaming data (newest first):
+	// Get previous analysis results
+	previousAnalysis := s.GetAnalysisMemory(req.FeedID)
+
+	// Build user prompt with previous analysis and current context
+	var userPrompt string
+	if len(previousAnalysis) > 0 {
+		var prevSection strings.Builder
+		prevSection.WriteString("Previous Analysis (for reference):\n\n")
+		for i, prev := range previousAnalysis {
+			prevSection.WriteString(fmt.Sprintf("%d. [%s] Q: %s\n   A: %s\n\n",
+				i+1,
+				prev.Timestamp.Format("15:04:05"),
+				prev.Question,
+				prev.Answer))
+		}
+
+		userPrompt = fmt.Sprintf(`%s
+Current Data (newest first):
+
+%s
+
+Question: %s`, prevSection.String(), contextData, req.Question)
+	} else {
+		userPrompt = fmt.Sprintf(`Here is the recent streaming data (newest first):
 
 %s
 
 Question: %s`, contextData, req.Question)
+	}
 
 	// Build messages
 	messages := []ChatMessage{
@@ -420,8 +550,12 @@ Question: %s`, contextData, req.Question)
 	}
 	close(tokenChan)
 
+	// Store the analysis result in memory
+	answer := fullAnswer.String()
+	s.addAnalysisResult(req.FeedID, req.Question, answer, provider.Name())
+
 	return &QueryResponse{
-		Answer:   fullAnswer.String(),
+		Answer:   answer,
 		Provider: provider.Name(),
 		FeedID:   req.FeedID,
 		Duration: time.Since(start).Milliseconds(),

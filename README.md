@@ -195,25 +195,26 @@ The Help section is designed for developers new to:
 
 ### go-backend
 
-The core API server providing REST endpoints and WebSocket connections for real-time data streaming.
+High-performance Go backend providing REST APIs and real-time WebSocket capabilities.
 
-**Features:**
-- JWT-based authentication with 2FA support
-- Marketplace REST API for feed discovery and management (for developer integration)
-- Native WebSocket server for real-time feed streaming
-- AI integration with [**TSLN (Time-Series Lean Notation)**](https://github.com/turboline-ai/tsln-golang) optimization for efficient token usage
+**Key Features:**
+- JWT authentication with 2FA support
+- WebSocket streaming at `/ws` for real-time data and LLM output
+- Multi-provider LLM support (OpenAI, Anthropic, Gemini, Mistral, xAI, Ollama)
+- Token optimization with [TSLN (Time-Series Lean Notation)](https://github.com/turboline-ai/tsln-golang)
+- Feed marketplace for discovery and subscription management
 
 **Documentation:** [go-backend/README.md](go-backend/README.md)
 
 ### go-tui
 
-A terminal-based user interface built with Bubble Tea and Lip Gloss for command-line users who prefer keyboard-driven workflows.
+Terminal UI built with Bubble Tea for command-line users who prefer keyboard-driven workflows.
 
-**Features:**
-- Real-time feed streaming in the terminal
-- Comprehensive observability dashboard with sparkline charts
-- Live metrics and performance monitoring
-- Keyboard-driven navigation
+**Key Features:**
+- Real-time feed monitoring with WebSocket connections
+- Observability dashboard with sparkline charts
+- LLM streaming with live token-by-token display
+- Performance metrics (throughput, latency, context state)
 
 **Documentation:** [go-tui/README.md](go-tui/README.md)
 
