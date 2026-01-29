@@ -60,6 +60,28 @@ func (am *AnalysisMemory) GetResults() []AnalysisResult {
 	return am.Results
 }
 
+// formatAnalysisMemoryTSLN converts analysis memory to compact TSLN-style format
+// Format: "timestamp|question|answer" - saves ~30% tokens vs verbose format
+func formatAnalysisMemoryTSLN(results []AnalysisResult) string {
+	if len(results) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("Previous Analysis (TSLN format - time|question|answer):\n")
+	for _, result := range results {
+		// Truncate long answers to save tokens (keep first 200 chars)
+		answer := result.Answer
+		if len(answer) > 200 {
+			answer = answer[:200] + "..."
+		}
+		sb.WriteString(fmt.Sprintf("%s|%s|%s\n",
+			result.Timestamp.Format("15:04:05"),
+			result.Question,
+			answer))
+	}
+	return sb.String()
+}
+
 // LLMService provides LLM capabilities with multi-provider support (BYOM)
 type LLMService struct {
 	cfg         config.Config
@@ -396,24 +418,17 @@ If the data doesn't contain information to answer the question, say so clearly.`
 	previousAnalysis := s.GetAnalysisMemory(req.FeedID)
 
 	// Build user prompt with previous analysis and current context
+	// OPTIMIZATION: Use TSLN-style format for analysis memory (~30% token savings)
 	var userPrompt string
 	if len(previousAnalysis) > 0 {
-		var prevSection strings.Builder
-		prevSection.WriteString("Previous Analysis (for reference):\n\n")
-		for i, prev := range previousAnalysis {
-			prevSection.WriteString(fmt.Sprintf("%d. [%s] Q: %s\n   A: %s\n\n",
-				i+1,
-				prev.Timestamp.Format("15:04:05"),
-				prev.Question,
-				prev.Answer))
-		}
+		prevSection := formatAnalysisMemoryTSLN(previousAnalysis)
 
 		userPrompt = fmt.Sprintf(`%s
 Current Data (newest first):
 
 %s
 
-Question: %s`, prevSection.String(), contextData, req.Question)
+Question: %s`, prevSection, contextData, req.Question)
 	} else {
 		userPrompt = fmt.Sprintf(`Here is the recent streaming data (newest first):
 
@@ -502,24 +517,17 @@ Answer questions based ONLY on the provided tabular data context. Be concise and
 	previousAnalysis := s.GetAnalysisMemory(req.FeedID)
 
 	// Build user prompt with previous analysis and current context
+	// OPTIMIZATION: Use TSLN-style format for analysis memory (~30% token savings)
 	var userPrompt string
 	if len(previousAnalysis) > 0 {
-		var prevSection strings.Builder
-		prevSection.WriteString("Previous Analysis (for reference):\n\n")
-		for i, prev := range previousAnalysis {
-			prevSection.WriteString(fmt.Sprintf("%d. [%s] Q: %s\n   A: %s\n\n",
-				i+1,
-				prev.Timestamp.Format("15:04:05"),
-				prev.Question,
-				prev.Answer))
-		}
+		prevSection := formatAnalysisMemoryTSLN(previousAnalysis)
 
 		userPrompt = fmt.Sprintf(`%s
 Current Data (newest first):
 
 %s
 
-Question: %s`, prevSection.String(), contextData, req.Question)
+Question: %s`, prevSection, contextData, req.Question)
 	} else {
 		userPrompt = fmt.Sprintf(`Here is the recent streaming data (newest first):
 
