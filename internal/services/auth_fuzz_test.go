@@ -3,7 +3,7 @@ package services
 import (
 	"testing"
 
-	"github.com/turboline-ai/turbostream/go-backend/internal/config"
+	"github.com/turboline-ai/turbostream/internal/config"
 )
 
 func FuzzParseToken(f *testing.F) {

@@ -17,8 +17,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/turboline-ai/turbostream/go-backend/internal/config"
-	"github.com/turboline-ai/turbostream/go-backend/internal/models"
+	"github.com/turboline-ai/turbostream/internal/config"
+	"github.com/turboline-ai/turbostream/internal/models"
 )
 
 // AuthService handles user authentication, sessions, and 2FA

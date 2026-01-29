@@ -12,11 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 
-	"github.com/turboline-ai/turbostream/go-backend/internal/config"
-	"github.com/turboline-ai/turbostream/go-backend/internal/db"
-	transport "github.com/turboline-ai/turbostream/go-backend/internal/http"
-	"github.com/turboline-ai/turbostream/go-backend/internal/services"
-	"github.com/turboline-ai/turbostream/go-backend/internal/socket"
+	"github.com/turboline-ai/turbostream/internal/config"
+	"github.com/turboline-ai/turbostream/internal/db"
+	transport "github.com/turboline-ai/turbostream/internal/http"
+	"github.com/turboline-ai/turbostream/internal/services"
+	"github.com/turboline-ai/turbostream/internal/socket"
 )
 
 func TestServerInitialization(t *testing.T) {

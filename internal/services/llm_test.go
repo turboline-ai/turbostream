@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/turboline-ai/turbostream/go-backend/internal/config"
+	"github.com/turboline-ai/turbostream/internal/config"
 )
 
 func TestNewLLMService_MultipleProviders(t *testing.T) {

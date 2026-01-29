@@ -15,8 +15,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"github.com/turboline-ai/turbostream/go-backend/internal/config"
-	"github.com/turboline-ai/turbostream/go-backend/internal/services"
+	"github.com/turboline-ai/turbostream/internal/config"
+	"github.com/turboline-ai/turbostream/internal/services"
 )
 
 func setupAuthHandler(t *testing.T) (*AuthHandler, *services.AuthService, func()) {

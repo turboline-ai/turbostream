@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/turboline-ai/turbostream/go-backend/internal/services"
+	"github.com/turboline-ai/turbostream/internal/services"
 )
 
 // SettingsHandler handles HTTP requests for application settings and categories

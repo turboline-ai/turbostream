@@ -15,8 +15,9 @@ go-tui/tui
 go-tui/turbostream
 go-tui/go-tui
 go-tui/.cache/
-go-backend/server
-go-backend/.cache/
+server
+.cache/
+main
 
 # Environment files (NEVER commit these - contain secrets)
 .env
@@ -24,7 +25,6 @@ go-backend/.cache/
 .env.*.local
 .env.production
 .env.development
-go-backend/.env.local
 
 # Node (in case frontend comes back)
 node_modules/

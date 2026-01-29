@@ -1,374 +1,277 @@
 # TurboStream
 
-![Banner](https://turbocdn.blob.core.windows.net/blog-images/terminal-ui.png)
-
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-**Real-time data stream monitoring with AI-powered analysis**
+**Real-time data streaming backend with AI-powered analysis**
 
-TurboStream is an open-source terminal UI for monitoring high-velocity WebSocket streams and selectively analyzing them with LLMs in real time.
-
-[![Watch the video](https://img.youtube.com/vi/wi7u57JCQ_E/maxresdefault.jpg)](https://youtu.be/wi7u57JCQ_E)
-
-### [Watch this video on YouTube](https://youtu.be/wi7u57JCQ_E)
+High-performance Go backend providing REST APIs and WebSocket streaming for monitoring high-velocity data streams with LLM analysis.
 
 ---
 
-## Table of Contents
+## Quick Start Video
 
-- [Overview](#overview)
-- [How TurboStream Works (End-to-End)](#how-turbostream-works-end-to-end)
-- [Product Screens & How Developers Use Them](#product-screens--how-developers-use-them)
-- [Architecture](#architecture)
-- [Components](#components)
-- [Quick Start](#quick-start)
-- [Requirements](#requirements)
-- [Configuration](#configuration)
-- [Documentation](#documentation)
-- [License](#license)
-- [Contributing](#contributing)
-- [Security](#security)
-- [Support](#support)
+> 📹 **Coming Soon:** Watch our quick start guide on YouTube
 
 ---
 
-## Overview
+## Get Started in 3 Steps
 
-TurboStream enables developers and data engineers to:
-
-- **Subscribe to real-time data feeds** from various sources via WebSocket connections
-- **Apply AI-powered analysis** to streaming data with configurable prompts
-- **Monitor feed health and performance** through comprehensive observability dashboards
-
-The platform is designed for high throughput, low latency, and extensibility.
-
-### When to Use TurboStream
-
-Use TurboStream when:
-
-*   You have live data that never stops
-*   You want AI insights while data is flowing
-*   You care about latency, cost, and correctness
-*   You want observability, not black boxes
-
-### How TurboStream Works (End-to-End)
-
-```text
-WebSocket Feed (Fast Producer)
-        │
-        ▼
-┌───────────────────────┐
-│  TurboStream Ingest   │
-│  + Buffering          │
-│  + Sampling           │
-│  + Context Window     │
-└─────────┬─────────────┘
-          │
-          ▼
-┌───────────────────────┐
-│  LLM Analysis Layer   │  ← Prompt applied to live stream
-│  (Slow Consumer)      │
-└─────────┬─────────────┘
-          │
-          ▼
-┌───────────────────────┐
-│  API Outputs          │  ← JSON, webhooks, notifications
-└───────────────────────┘
-```
-
-### Product Screens & How Developers Use Them
-
-#### 1) Dashboard — Real-Time Observability
-
-The Dashboard is where developers see the system working.
-
-![Dashboard](https://turbocdn.blob.core.windows.net/blog-images/dashboard.png)
-
-This screen answers questions like:
-
-*   Is my WebSocket healthy?
-*   How fast is data arriving?
-*   How much data is being dropped or evicted?
-*   How expensive and slow are my LLM calls?
-*   Am I about to blow the model context window?
-
-All metrics shown here are defined in detail in the [Dashboard Metrics Review](DASHBOARD_METRICS_REVIEW.md)
-
-#### 2) Register Feed — Connect a WebSocket
-
-This is where developers add a new real-time data source.
-
-![Feed-Registration](https://turbocdn.blob.core.windows.net/blog-images/feed-registration.png)
-
-**What You Do**
-
-*   Provide a WebSocket URL
-*   Define any subscription or handshake message
-*   Add LLM system prompt for analyzing websocket data
-*   Save the feed
-
-You can find example WebSocket URLs in our [WebSocket directory](https://turboline.ai/docs/websockets).
-
-#### 3) My Feeds — Live Data + AI Analysis
-
-This is the core interaction screen.
-
-![Analysis-Window](https://turbocdn.blob.core.windows.net/blog-images/analysis-window.png)
-
-**What You See**
-
-*   Live streaming data from your WebSocket
-*   Feed-specific metrics
-*   Current LLM context size
-
-**What You Do**
-
-*   Attach a prompt to the live stream
-*   Control when and how often the LLM runs
-*   Observe AI outputs in near real time
-
-#### 4) API — Consume AI Output Anywhere
-
-TurboStream turns each feed into a programmable AI endpoint.
-
-![API](https://turbocdn.blob.core.windows.net/blog-images/API-endpoints.png)
-
-**What You Get**
-
-*   REST endpoints per feed
-*   Structured AI output
-*   Predictable schemas
-
-**Easy integration into:**
-
-*   Alerting systems
-*   Slack / email / PagerDuty
-*   Dashboards
-*   Automated workflows
-
-#### 5) Help — Onboarding & Documentation
-
-![Help](https://turbocdn.blob.core.windows.net/blog-images/Help-section.png)
-
-The Help section is designed for developers new to:
-
-*   WebSocket streaming
-*   Real-time data
-*   LLM context management
-
-*Note: Commercial version of this tool includes a modern web-based interface.*
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           TurboStream Platform                          │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│   ┌─────────────┐    ┌─────────────────────────┐                        │
-│   │   go-tui    │    │    External Clients     │                        │
-│   │  (Terminal) │    │     (REST / WS API)     │                        │
-│   └──────┬──────┘    └───────────┬─────────────┘                        │
-│          │                       │                                      │
-│          └───────────────────────┘                                      │
-│                             │                                           │
-│                    ┌────────┴────────┐                                  │
-│                    │   go-backend    │                                  │
-│                    │    REST + WS    │                                  │
-│                    └────────┬────────┘                                  │
-│                             │                                           │
-│                    ┌────────┴────────┐                                  │
-│                    │                 │                                  │
-│              ┌─────┴─────┐     ┌─────┴─────┐                            │
-│              │  MongoDB  │     │  OpenAI   │                            │
-│              │  (Data)   │     │   (AI)    │                            │
-│              └───────────┘     └───────────┘                            │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Components
-
-### go-backend
-
-High-performance Go backend providing REST APIs and real-time WebSocket capabilities.
-
-**Key Features:**
-- JWT authentication with 2FA support
-- WebSocket streaming at `/ws` for real-time data and LLM output
-- Multi-provider LLM support (OpenAI, Anthropic, Gemini, Mistral, xAI, Ollama)
-- Token optimization with [TSLN (Time-Series Lean Notation)](https://github.com/turboline-ai/tsln-golang)
-- Feed marketplace for discovery and subscription management
-
-**Documentation:** [go-backend/README.md](go-backend/README.md)
-
-### go-tui
-
-Terminal UI built with Bubble Tea for command-line users who prefer keyboard-driven workflows.
-
-**Key Features:**
-- Real-time feed monitoring with WebSocket connections
-- Observability dashboard with sparkline charts
-- LLM streaming with live token-by-token display
-- Performance metrics (throughput, latency, context state)
-
-**Documentation:** [go-tui/README.md](go-tui/README.md)
-
-### Web Frontend (Commercial)
-
-A modern web-based interface is available in the commercial version of TurboStream.
-
-**Features:**
-- Responsive web interface
-- Feed visualization and management
-- User profile and settings
-- AI analysis integration
-
-Contact [Turboline AI](https://turboline.ai) for commercial licensing inquiries.
-
----
-
-## Quick Start
-
-### 1. Clone the Repository
+### 1. Clone & Configure
 
 ```bash
 git clone https://github.com/turboline-ai/turbostream.git
 cd turbostream
+cp .env.local.example .env.local
 ```
 
-### 2. Start the Backend
+### 2. Set Up Your Environment
+
+Edit `.env.local` with your credentials:
 
 ```bash
-cd go-backend
-cp .env.local.example .env.local
-# Edit .env.local with your configuration
+# Database (Required)
+MONGODB_URI=your-mongodb-connection-string
+MONGODB_DB_NAME=turbostream
+
+# Security (Required)
+JWT_SECRET=$(openssl rand -hex 64)
+ENCRYPTION_KEY=$(openssl rand -hex 32)
+
+# LLM Provider (Choose one)
+DEFAULT_AI_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-your-key
+```
+
+**Need MongoDB?** Get a free cluster at [mongodb.com/cloud/atlas](https://www.mongodb.com/cloud/atlas)
+
+**Need an LLM API key?** See [LLM Providers](#llm-providers) below
+
+### 3. Run the Server
+
+```bash
 go run ./cmd/server
 ```
 
-### 3. Start the Terminal UI
+Server starts at `http://localhost:7210` ✨
 
+---
+
+## LLM Providers
+
+TurboStream supports **Bring Your Own Model (BYOM)**. Configure any provider by setting environment variables:
+
+| Provider | Get API Key | Env Vars |
+|----------|-------------|----------|
+| **Anthropic (Claude)** | [console.anthropic.com](https://console.anthropic.com/) | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` |
+| **OpenAI** | [platform.openai.com](https://platform.openai.com/api-keys) | `OPENAI_API_KEY`, `OPENAI_MODEL` |
+| **Azure OpenAI** | [portal.azure.com](https://portal.azure.com) | `AZURE_OPENAI_*` |
+| **Google Gemini** | [aistudio.google.com](https://aistudio.google.com/apikey) | `GOOGLE_API_KEY`, `GOOGLE_MODEL` |
+| **Mistral** | [console.mistral.ai](https://console.mistral.ai/) | `MISTRAL_API_KEY`, `MISTRAL_MODEL` |
+| **xAI (Grok)** | [console.x.ai](https://console.x.ai/) | `XAI_API_KEY`, `XAI_MODEL` |
+| **Ollama (Local)** | [ollama.com](https://ollama.com/) | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` |
+
+**Example** (Anthropic):
 ```bash
-cd go-tui
-go run .
+DEFAULT_AI_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
 ```
 
 ---
 
-## Requirements
+## Deploy to Production
 
-| Component    | Requirement           |
-|--------------|-----------------------|
-| Go           | 1.24 or higher        |
-| MongoDB      | 6.0 or higher         |
+### Railway (Recommended)
 
----
+> 📹 **Coming Soon:** Watch our Railway deployment guide
 
-## Configuration
+1. **Push your code** to GitHub
+2. **Connect to Railway**: [railway.app](https://railway.app)
+3. **Add environment variables** in Railway dashboard
+4. **Deploy** - Railway auto-detects your `Dockerfile`
 
-### Backend Environment Variables
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/turboline-ai/turbostream)
 
-| Variable                | Description                          | Default              |
-|-------------------------|--------------------------------------|----------------------|
-| `PORT`                  | HTTP server port                     | `7210`               |
-| `MONGODB_URI`           | MongoDB connection string            | Required             |
-| `JWT_SECRET`            | Secret for JWT signing               | Required             |
-| `ENCRYPTION_KEY`        | Key for encrypting sensitive data    | Required             |
-| `CORS_ORIGIN`           | Allowed CORS origins                 | `*`                  |
-| `AZURE_OPENAI_ENDPOINT` | OpenAI API endpoint                  | Optional             |
-| `AZURE_OPENAI_API_KEY`  | OpenAI API key                       | Optional             |
+**Need help?** See our [deployment guide](https://turboline.ai/docs/deployment)
 
-### TUI Environment Variables
+### Docker
 
-| Variable                  | Description                    | Default                       |
-|---------------------------|--------------------------------|-------------------------------|
-| `TURBOSTREAM_BACKEND_URL` | Backend REST API URL           | `http://localhost:7210`       |
-| `TURBOSTREAM_WEBSOCKET_URL` | Backend WebSocket URL        | `ws://localhost:7210/ws`      |
-| `TURBOSTREAM_TOKEN`       | Pre-configured JWT token       | None                          |
-| `TURBOSTREAM_EMAIL`       | Pre-fill login email           | None                          |
+```bash
+# Build
+docker build -t turbostream .
+
+# Run
+docker run -p 7210:7210 --env-file .env.local turbostream
+```
 
 ---
 
-## Documentation
+## API Documentation
 
-| Document                                                    | Description                                    |
-|-------------------------------------------------------------|------------------------------------------------|
-| [go-backend/README.md](go-backend/README.md)                | Backend setup and API reference                |
-| [go-tui/README.md](go-tui/README.md)                        | Terminal UI usage and key bindings             |
-| [DASHBOARD_METRICS_REVIEW.md](DASHBOARD_METRICS_REVIEW.md)  | TUI dashboard metrics and chart documentation  |
+📚 **Complete API Reference**: [turboline.ai/docs/api](https://turboline.ai/docs/api)
+
+### Quick Reference
+
+**Authentication:**
+- `POST /api/auth/register` - Register new user
+- `POST /api/auth/login` - Login and get JWT token
+
+**LLM:**
+- `POST /api/llm/query` - Query LLM with feed data
+- `POST /api/llm/query/stream` - Stream LLM responses (SSE)
+- `GET /api/llm/providers` - List available LLM providers
+
+**Marketplace:**
+- `GET /api/marketplace` - List all feeds
+- `POST /api/marketplace` - Create new feed (requires auth)
+
+**WebSocket:**
+- `ws://localhost:7210/ws` - Real-time streaming
+
+For detailed API docs, examples, and WebSocket protocol, visit [turboline.ai/docs/api](https://turboline.ai/docs/api)
+
+---
+
+## Features
+
+### Core Capabilities
+- **JWT Authentication** - Secure user management with 2FA support
+- **WebSocket Streaming** - Real-time data and LLM token streaming
+- **Multi-Provider LLM** - Support for 7+ LLM providers (BYOM)
+- **Feed Marketplace** - Discover and manage data feeds
+- **Context Management** - Intelligent data accumulation for AI analysis
+- **Token Optimization** - TSLN format reduces tokens by 40-60%
+
+### Security
+- JWT-based authentication
+- 2FA with TOTP and backup codes
+- Encrypted sensitive data
+- Session management
+- Login activity tracking
+
+---
+
+## Clients
+
+### Terminal UI
+
+A keyboard-driven terminal interface for TurboStream:
+
+**Repository:** [github.com/turboline-ai/turbostream-tui](https://github.com/turboline-ai/turbostream-tui)
+
+```bash
+git clone https://github.com/turboline-ai/turbostream-tui.git
+cd turbostream-tui
+go run .
+```
+
+### Web Frontend (Commercial)
+
+Modern web interface with responsive design and user management.
+
+**Contact:** [turboline.ai](https://turboline.ai) for commercial licensing
+
+---
+
+## Development
+
+### Project Structure
+
+```
+turbostream/
+├── cmd/server/          # Main application entry point
+├── internal/
+│   ├── config/          # Configuration loading
+│   ├── db/              # MongoDB client
+│   ├── http/            # HTTP handlers and routing
+│   ├── models/          # Data models
+│   ├── services/        # Business logic (auth, LLM, etc.)
+│   └── socket/          # WebSocket manager
+├── Dockerfile
+├── railway.toml
+└── go.mod
+```
+
+### Running Tests
+
+```bash
+go test ./...              # Run all tests
+go test -cover ./...       # With coverage
+go test ./internal/services # Specific package
+```
+
+### Code Quality
+
+```bash
+go fmt ./...               # Format code
+golangci-lint run          # Lint
+gosec ./...                # Security scan
+```
+
+---
+
+## Environment Variables Reference
+
+### Required
+
+```bash
+MONGODB_URI=mongodb://...           # MongoDB connection string
+MONGODB_DB_NAME=turbostream         # Database name
+JWT_SECRET=...                      # Generate with: openssl rand -hex 64
+ENCRYPTION_KEY=...                  # Generate with: openssl rand -hex 32
+DEFAULT_AI_PROVIDER=anthropic       # Choose your LLM provider
+ANTHROPIC_API_KEY=sk-ant-...        # Your provider's API key
+```
+
+### Optional
+
+```bash
+PORT=7210                           # Server port (Railway sets this)
+CORS_ORIGIN=http://localhost:3000   # Frontend URL
+LLM_MAX_TOKENS=1024                 # Max LLM response tokens
+LLM_TEMPERATURE=0.7                 # LLM creativity (0.0-2.0)
+LLM_CONTEXT_LIMIT=50                # Max feed entries in context
+REQUEST_TIMEOUT_MS=15000            # Request timeout
+TOKEN_QUOTA_PER_MONTH=1000000       # Token usage quota
+```
+
+**Full configuration guide:** [turboline.ai/docs/configuration](https://turboline.ai/docs/configuration)
+
+---
+
+## Resources
+
+- 📚 **API Documentation**: [turboline.ai/docs/api](https://turboline.ai/docs/api)
+- 🚀 **Deployment Guide**: [turboline.ai/docs/deployment](https://turboline.ai/docs/deployment)
+- 🔧 **Configuration Guide**: [turboline.ai/docs/configuration](https://turboline.ai/docs/configuration)
+- 💬 **Community Discussions**: [GitHub Discussions](https://github.com/turboline-ai/turbostream/discussions)
+- 🐛 **Report Issues**: [GitHub Issues](https://github.com/turboline-ai/turbostream/issues)
+- 📺 **Video Tutorials**: [YouTube](https://youtube.com/@turboline-ai)
 
 ---
 
 ## License
 
-TurboStream is licensed under the **Mozilla Public License 2.0 (MPL-2.0)**.
+Licensed under the **Mozilla Public License 2.0 (MPL-2.0)**.
 
-This means:
-- You can use, modify, and distribute this software freely
-- Modifications to MPL-licensed files must be released under MPL-2.0
-- You can combine this software with proprietary code in larger works
-- Patent rights are granted from contributors to users
-
-See the [LICENSE](LICENSE) file for the complete license text.
+See [LICENSE](LICENSE) for details.
 
 ---
 
 ## Contributing
 
-We welcome contributions from the community. To contribute:
+We welcome contributions! Please:
 
-### Getting Started
+1. Fork the repository
+2. Create a feature branch from `main`
+3. Make your changes with clear commit messages
+4. Test thoroughly
+5. Submit a pull request
 
-1. **Fork the repository** on GitHub
-2. **Clone your fork** locally
-3. **Create a feature branch** from `main`
-4. **Make your changes** following our code style guidelines
-5. **Test your changes** thoroughly
-6. **Submit a pull request** with a clear description
-
-### Pull Request Guidelines
-
-- Provide a clear description of the changes
-- Reference any related issues
-- Include relevant tests if applicable
-- Ensure CI checks pass before requesting review
-
-### Reporting Issues
-
-When reporting bugs, please include:
-- Steps to reproduce the issue
-- Expected behavior vs actual behavior
-- Go/Node.js version and operating system
-- Relevant logs or error messages
-
-### Feature Requests
-
-- Check existing issues first to avoid duplicates
-- Clearly describe the use case and proposed solution
-- Be open to discussion and feedback
+**Contribution guide:** [turboline.ai/docs/contributing](https://turboline.ai/docs/contributing)
 
 ---
 
-## Security
-
-If you discover a security vulnerability, please report it responsibly:
-
-1. **Do not** open a public GitHub issue
-2. Email security concerns to the maintainers directly
-3. Provide detailed information about the vulnerability
-4. Allow reasonable time for a fix before public disclosure
-
----
-
-## Support
-
-- **Issues:** [GitHub Issues](https://github.com/turboline-ai/turbostream/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/turboline-ai/turbostream/discussions)
-
----
+**Made with ❤️ by [Turboline AI](https://turboline.ai)**
 
 Copyright 2024-2025 Turboline AI. All rights reserved.

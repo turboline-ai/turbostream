@@ -9,7 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	"github.com/turboline-ai/turbostream/go-backend/internal/models"
+	"github.com/turboline-ai/turbostream/internal/models"
 )
 
 func setupMarketplaceService(t *testing.T) (*MarketplaceService, func()) {

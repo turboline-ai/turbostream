@@ -13,9 +13,9 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	"github.com/turboline-ai/turbostream/go-backend/internal/models"
-	"github.com/turboline-ai/turbostream/go-backend/internal/services"
-	"github.com/turboline-ai/turbostream/go-backend/internal/socket"
+	"github.com/turboline-ai/turbostream/internal/models"
+	"github.com/turboline-ai/turbostream/internal/services"
+	"github.com/turboline-ai/turbostream/internal/socket"
 )
 
 // MarketplaceHandler handles HTTP requests for feed marketplace operations

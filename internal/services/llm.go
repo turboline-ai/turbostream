@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/turboline-ai/tsln-golang"
-	"github.com/turboline-ai/turbostream/go-backend/internal/config"
+	"github.com/turboline-ai/turbostream/internal/config"
 )
 
 // FeedContext represents accumulated feed data for LLM context

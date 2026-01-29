@@ -15,9 +15,9 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"github.com/turboline-ai/turbostream/go-backend/internal/models"
-	"github.com/turboline-ai/turbostream/go-backend/internal/services"
-	"github.com/turboline-ai/turbostream/go-backend/internal/socket"
+	"github.com/turboline-ai/turbostream/internal/models"
+	"github.com/turboline-ai/turbostream/internal/services"
+	"github.com/turboline-ai/turbostream/internal/socket"
 )
 
 func setupMarketplaceHandler(t *testing.T) (*MarketplaceHandler, *services.MarketplaceService, primitive.ObjectID, func()) {

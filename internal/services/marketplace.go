@@ -11,7 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"github.com/turboline-ai/turbostream/go-backend/internal/models"
+	"github.com/turboline-ai/turbostream/internal/models"
 )
 
 // MarketplaceService handles feed marketplace operations and subscriptions

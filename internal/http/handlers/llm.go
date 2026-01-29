@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/turboline-ai/turbostream/go-backend/internal/services"
-	"github.com/turboline-ai/turbostream/go-backend/internal/socket"
+	"github.com/turboline-ai/turbostream/internal/services"
+	"github.com/turboline-ai/turbostream/internal/socket"
 )
 
 // LLMHandler handles LLM-related HTTP requests

@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	"github.com/turboline-ai/turbostream/go-backend/internal/services"
+	"github.com/turboline-ai/turbostream/internal/services"
 )
 
 // AuthHandler handles HTTP requests for authentication and user management

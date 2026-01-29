@@ -1,4 +1,4 @@
-module github.com/turboline-ai/turbostream/go-backend
+module github.com/turboline-ai/turbostream
 
 go 1.24.4
 
