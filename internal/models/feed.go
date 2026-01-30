@@ -18,7 +18,7 @@ type WebSocketFeed struct {
 	IsVerified              bool               `bson:"isVerified" json:"isVerified"`
 	IsPublic                bool               `bson:"isPublic" json:"isPublic"`
 	FeedType                string             `bson:"feedType" json:"feedType"`
-	OwnerID                 string             `bson:"ownerId" json:"ownerId"`
+	OwnerID                 string             `bson:"ownerId" json:"userId"`
 	OwnerName               string             `bson:"ownerName" json:"ownerName"`
 	ConnectionType          string             `bson:"connectionType,omitempty" json:"connectionType,omitempty"`
 	QueryParams             []KeyValue         `bson:"queryParams,omitempty" json:"queryParams,omitempty"`
@@ -39,6 +39,8 @@ type WebSocketFeed struct {
 	Documentation           string             `bson:"documentation,omitempty" json:"documentation,omitempty"`
 	DefaultAIPrompt         string             `bson:"defaultAIPrompt,omitempty" json:"defaultAIPrompt,omitempty"`
 	AIAnalysisEnabled       bool               `bson:"aiAnalysisEnabled,omitempty" json:"aiAnalysisEnabled,omitempty"`
+	EnableTopicRouting      bool               `bson:"enableTopicRouting" json:"enableTopicRouting"`
+	TopicField              string             `bson:"topicField,omitempty" json:"topicField,omitempty"`
 	CreatedAt               time.Time          `bson:"createdAt" json:"createdAt"`
 	UpdatedAt               time.Time          `bson:"updatedAt" json:"updatedAt"`
 	LastActiveAt            *time.Time         `bson:"lastActiveAt,omitempty" json:"lastActiveAt,omitempty"`

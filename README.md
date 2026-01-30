@@ -139,6 +139,7 @@ For detailed API docs, examples, and WebSocket protocol, visit [turboline.ai/doc
 - **WebSocket Streaming** - Real-time data and LLM token streaming
 - **Multi-Provider LLM** - Support for 7+ LLM providers (BYOM)
 - **Feed Marketplace** - Discover and manage data feeds
+- **Topic Routing** - Isolated LLM intelligence per topic (e.g., BTC-USD, ETH-USD)
 - **Context Management** - Intelligent data accumulation for AI analysis
 - **Token Optimization** - TSLN format reduces tokens by 40-60%
 
@@ -274,4 +275,4 @@ We welcome contributions! Please:
 
 **Made with ❤️ by [Turboline AI](https://turboline.ai)**
 
-Copyright 2024-2025 Turboline AI. All rights reserved.
+Copyright 2024-2026 Turboline AI. All rights reserved.

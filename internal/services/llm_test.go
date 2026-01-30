@@ -191,7 +191,7 @@ func TestLLMService_FeedContext(t *testing.T) {
 	svc.AddFeedData(feedID, feedName, map[string]interface{}{
 		"value": 100,
 		"type":  "metric",
-	})
+	}, "")
 
 	ctx = svc.GetFeedContext(feedID)
 	require.NotNil(t, ctx)
@@ -201,8 +201,8 @@ func TestLLMService_FeedContext(t *testing.T) {
 	assert.Equal(t, 100, ctx.Entries[0]["value"])
 
 	// Add more entries
-	svc.AddFeedData(feedID, feedName, map[string]interface{}{"value": 200})
-	svc.AddFeedData(feedID, feedName, map[string]interface{}{"value": 300})
+	svc.AddFeedData(feedID, feedName, map[string]interface{}{"value": 200}, "")
+	svc.AddFeedData(feedID, feedName, map[string]interface{}{"value": 300}, "")
 
 	ctx = svc.GetFeedContext(feedID)
 	assert.Len(t, ctx.Entries, 3)
@@ -212,7 +212,7 @@ func TestLLMService_FeedContext(t *testing.T) {
 	assert.Equal(t, 100, ctx.Entries[2]["value"])
 
 	// Add one more - should trigger limit
-	svc.AddFeedData(feedID, feedName, map[string]interface{}{"value": 400})
+	svc.AddFeedData(feedID, feedName, map[string]interface{}{"value": 400}, "")
 
 	ctx = svc.GetFeedContext(feedID)
 	assert.Len(t, ctx.Entries, 3) // Limited to 3
@@ -269,7 +269,7 @@ func TestLLMService_FeedContext_DifferentDataTypes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc.AddFeedData(feedID, feedName, tt.data)
+			svc.AddFeedData(feedID, feedName, tt.data, "")
 			ctx := svc.GetFeedContext(feedID)
 			require.NotNil(t, ctx)
 			require.Greater(t, len(ctx.Entries), 0)
@@ -294,7 +294,7 @@ func TestLLMService_ClearFeedContext(t *testing.T) {
 	require.NoError(t, err)
 
 	feedID := "test-feed"
-	svc.AddFeedData(feedID, "Test", map[string]interface{}{"value": 1})
+	svc.AddFeedData(feedID, "Test", map[string]interface{}{"value": 1}, "")
 
 	ctx := svc.GetFeedContext(feedID)
 	assert.NotNil(t, ctx)
@@ -356,9 +356,9 @@ func TestLLMService_MultipleFeedContexts(t *testing.T) {
 	feed1 := "feed-1"
 	feed2 := "feed-2"
 
-	svc.AddFeedData(feed1, "Feed 1", map[string]interface{}{"value": 100})
-	svc.AddFeedData(feed2, "Feed 2", map[string]interface{}{"value": 200})
-	svc.AddFeedData(feed1, "Feed 1", map[string]interface{}{"value": 101})
+	svc.AddFeedData(feed1, "Feed 1", map[string]interface{}{"value": 100}, "")
+	svc.AddFeedData(feed2, "Feed 2", map[string]interface{}{"value": 200}, "")
+	svc.AddFeedData(feed1, "Feed 1", map[string]interface{}{"value": 101}, "")
 
 	ctx1 := svc.GetFeedContext(feed1)
 	ctx2 := svc.GetFeedContext(feed2)
@@ -385,7 +385,7 @@ func TestLLMService_ContextTimestamps(t *testing.T) {
 	feedID := "test-feed"
 	before := time.Now()
 
-	svc.AddFeedData(feedID, "Test", map[string]interface{}{"value": 1})
+	svc.AddFeedData(feedID, "Test", map[string]interface{}{"value": 1}, "")
 
 	after := time.Now()
 
@@ -573,7 +573,7 @@ func TestLLMService_ClearFeedContext_ClearsAnalysisMemory(t *testing.T) {
 	feedID := "test-feed"
 
 	// Add feed context
-	svc.AddFeedData(feedID, "Test Feed", map[string]interface{}{"value": 100})
+	svc.AddFeedData(feedID, "Test Feed", map[string]interface{}{"value": 100}, "")
 
 	// Add analysis memory
 	svc.addAnalysisResult(feedID, "Test question", "Test answer", "openai")

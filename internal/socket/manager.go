@@ -133,27 +133,30 @@ type feedConnection struct {
 
 // Manager manages websocket connections and feed broadcasts.
 type Manager struct {
-	rooms          *RoomManager
-	auth           *services.AuthService
-	azure          *services.AzureOpenAI
-	llm            *services.LLMService
-	marketplace    *services.MarketplaceService
-	feedConns      map[string]*feedConnection
-	feedMu         sync.RWMutex
-	subscribers    map[string]map[*Client]struct{}
-	subscriberMu   sync.RWMutex
-	allowedOrigins []string
+	rooms            *RoomManager
+	auth             *services.AuthService
+	azure            *services.AzureOpenAI
+	llm              *services.LLMService
+	marketplace      *services.MarketplaceService
+	feedConns        map[string]*feedConnection
+	feedMu           sync.RWMutex
+	subscribers      map[string]map[*Client]struct{}
+	subscriberMu     sync.RWMutex
+	topicSchedulers  map[string]*services.TopicLLMScheduler
+	topicSchedulerMu sync.RWMutex
+	allowedOrigins   []string
 }
 
 func NewManager(auth *services.AuthService, azure *services.AzureOpenAI, marketplace *services.MarketplaceService, allowedOrigins []string) *Manager {
 	return &Manager{
-		rooms:          NewRoomManager(),
-		auth:           auth,
-		azure:          azure,
-		marketplace:    marketplace,
-		feedConns:      make(map[string]*feedConnection),
-		subscribers:    make(map[string]map[*Client]struct{}),
-		allowedOrigins: allowedOrigins,
+		rooms:           NewRoomManager(),
+		auth:            auth,
+		azure:           azure,
+		marketplace:     marketplace,
+		feedConns:       make(map[string]*feedConnection),
+		subscribers:     make(map[string]map[*Client]struct{}),
+		topicSchedulers: make(map[string]*services.TopicLLMScheduler),
+		allowedOrigins:  allowedOrigins,
 	}
 }
 
@@ -211,6 +214,24 @@ func (m *Manager) runClient(client *Client) {
 		log.Printf("📩 received message type: %s", msg.Type)
 		m.handleMessage(client, msg)
 	}
+}
+
+// extractTopic extracts the topic value from feed data using the TopicField
+func (m *Manager) extractTopic(feed models.WebSocketFeed, data interface{}) string {
+	if !feed.EnableTopicRouting || feed.TopicField == "" {
+		return ""
+	}
+
+	dataMap, ok := data.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+
+	if topicVal, exists := dataMap[feed.TopicField]; exists {
+		return fmt.Sprintf("%v", topicVal)
+	}
+
+	return ""
 }
 
 func (m *Manager) handleMessage(client *Client, msg WSMessage) {
@@ -380,6 +401,33 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 		}
 		go m.handleLLMStreamQuery(client, payload.FeedID, payload.Question, payload.Provider, payload.SystemPrompt, payload.RequestID)
 
+	case "subscribe-topic":
+		// Subscribe to specific topic intelligence
+		var payload struct {
+			UserID string `json:"userId"`
+			FeedID string `json:"feedId"`
+			Topic  string `json:"topic"`
+		}
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			client.send(makeMessage("subscription-error", map[string]string{"error": "invalid payload"}))
+			return
+		}
+
+		room := fmt.Sprintf("llm:%s:%s", payload.FeedID, payload.Topic)
+		m.rooms.Join(room, client)
+		log.Printf("✓ Client subscribed to topic %s (room: %s)", payload.Topic, room)
+		client.send(makeMessage("subscription-success", map[string]string{
+			"feedId": payload.FeedID,
+			"topic":  payload.Topic,
+			"type":   "topic",
+		}))
+
+		// Ensure feed is connected
+		go m.ensureFeedConnection(payload.FeedID)
+
+		// Ensure topic loop is started
+		go m.ensureTopicLoop(payload.FeedID, payload.Topic)
+
 	default:
 		client.send(makeMessage("error", map[string]string{"message": "unknown event"}))
 	}
@@ -437,6 +485,22 @@ func makeMessage(eventType string, payload interface{}) WSMessage {
 
 // BroadcastFeedData sends feed updates to clients subscribed to feed data.
 func (m *Manager) BroadcastFeedData(feed models.WebSocketFeed, data interface{}, eventName string) {
+	// Extract topic if this is a topic-routed feed
+	topic := m.extractTopic(feed, data)
+
+	// Add to LLM context with topic
+	if m.llm != nil {
+		m.llm.AddFeedData(feed.ID.Hex(), feed.Name, data, topic)
+	}
+
+	// For topic feeds: DON'T broadcast raw data
+	// Intelligence is broadcast via scheduler
+	if topic != "" {
+		log.Printf("📊 Updated context for %s:%s (topic mode, no raw data broadcast)", feed.ID.Hex(), topic)
+		return
+	}
+
+	// For non-topic feeds: broadcast raw data as before
 	payload := map[string]interface{}{
 		"feedId":    feed.ID.Hex(),
 		"feedName":  feed.Name,
@@ -445,12 +509,6 @@ func (m *Manager) BroadcastFeedData(feed models.WebSocketFeed, data interface{},
 		"timestamp": time.Now().UTC(),
 	}
 
-	// Add to LLM context for AI queries
-	if m.llm != nil {
-		m.llm.AddFeedData(feed.ID.Hex(), feed.Name, data)
-	}
-
-	// Broadcast to data room only (not llm room)
 	room := dataRoom(feed.ID.Hex())
 	log.Printf("📡 broadcasting feed-data to room %s (feed: %s)", room, feed.Name)
 	m.rooms.Broadcast(room, makeMessage("feed-data", payload))
@@ -468,6 +526,78 @@ func (m *Manager) BroadcastLLMOutput(feedID string, answer string, provider stri
 	room := llmRoom(feedID)
 	log.Printf("🤖 broadcasting llm-broadcast to room %s", room)
 	m.rooms.Broadcast(room, makeMessage("llm-broadcast", payload))
+}
+
+// broadcastLLMIntelligence broadcasts topic-specific LLM intelligence
+func (m *Manager) broadcastLLMIntelligence(feedID, topic, analysis, provider string) {
+	payload := map[string]interface{}{
+		"feedId":    feedID,
+		"topic":     topic,
+		"analysis":  analysis,
+		"provider":  provider,
+		"timestamp": time.Now().UTC(),
+	}
+
+	// Broadcast to topic-specific room
+	room := fmt.Sprintf("llm:%s:%s", feedID, topic)
+	log.Printf("🤖 Broadcasting intelligence to room %s", room)
+	m.rooms.Broadcast(room, makeMessage("llm-intelligence", payload))
+}
+
+// startTopicScheduler starts the topic LLM scheduler for a feed
+func (m *Manager) startTopicScheduler(feed models.WebSocketFeed) error {
+	if !feed.EnableTopicRouting {
+		return nil
+	}
+
+	feedID := feed.ID.Hex()
+
+	m.topicSchedulerMu.Lock()
+	defer m.topicSchedulerMu.Unlock()
+
+	if _, exists := m.topicSchedulers[feedID]; exists {
+		return nil // Already running
+	}
+
+	scheduler := services.NewTopicLLMScheduler(
+		feedID,
+		feed.Name,
+		m.llm,
+		m.broadcastLLMIntelligence,
+	)
+
+	m.topicSchedulers[feedID] = scheduler
+	log.Printf("✓ Started topic LLM scheduler for feed %s", feedID)
+
+	return nil
+}
+
+// stopTopicScheduler stops the topic LLM scheduler for a feed
+func (m *Manager) stopTopicScheduler(feedID string) {
+	m.topicSchedulerMu.Lock()
+	defer m.topicSchedulerMu.Unlock()
+
+	if scheduler, exists := m.topicSchedulers[feedID]; exists {
+		scheduler.StopAll()
+		delete(m.topicSchedulers, feedID)
+		log.Printf("✓ Stopped topic LLM scheduler for feed %s", feedID)
+	}
+}
+
+// ensureTopicLoop ensures a topic loop is started for a specific topic
+func (m *Manager) ensureTopicLoop(feedID, topic string) {
+	m.topicSchedulerMu.RLock()
+	scheduler, exists := m.topicSchedulers[feedID]
+	m.topicSchedulerMu.RUnlock()
+
+	if !exists {
+		log.Printf("⚠️ No scheduler found for feed %s, cannot start topic loop", feedID)
+		return
+	}
+
+	if err := scheduler.StartTopic(topic); err != nil {
+		log.Printf("⚠️ Failed to start topic loop for %s:%s: %v", feedID, topic, err)
+	}
 }
 
 // ConnectFeed opens a websocket connection to the external feed (basic websocket only) and broadcasts messages to subscribers.
@@ -535,6 +665,13 @@ func (m *Manager) ConnectFeed(feed models.WebSocketFeed) error {
 	m.feedConns[feed.ID.Hex()] = &feedConnection{conn: conn, stop: stop}
 	m.feedMu.Unlock()
 
+	// Start topic scheduler if enabled and LLM is available
+	if feed.EnableTopicRouting && m.llm != nil {
+		if err := m.startTopicScheduler(feed); err != nil {
+			log.Printf("⚠️ Failed to start topic scheduler: %v", err)
+		}
+	}
+
 	if feed.ConnectionMessage != "" {
 		log.Printf("sending connection message to feed %s", feed.ID.Hex())
 		if err := conn.WriteMessage(gws.TextMessage, []byte(feed.ConnectionMessage)); err != nil {
@@ -558,8 +695,6 @@ func (m *Manager) ConnectFeed(feed models.WebSocketFeed) error {
 // StopFeed stops the websocket connection for a given feed
 func (m *Manager) StopFeed(feedID string) {
 	m.feedMu.Lock()
-	defer m.feedMu.Unlock()
-
 	if fc, exists := m.feedConns[feedID]; exists {
 		// Check if channel is already closed to avoid panic
 		select {
@@ -572,6 +707,10 @@ func (m *Manager) StopFeed(feedID string) {
 		// and we want to avoid race conditions or double deletes
 		log.Printf("stopped feed %s", feedID)
 	}
+	m.feedMu.Unlock()
+
+	// Stop topic scheduler if exists
+	m.stopTopicScheduler(feedID)
 }
 
 func (m *Manager) ensureFeedConnection(feedID string) {

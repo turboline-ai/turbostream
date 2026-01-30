@@ -157,6 +157,8 @@ func (h *MarketplaceHandler) createFeed(c *gin.Context) {
 		Documentation:           body.Documentation,
 		DefaultAIPrompt:         body.DefaultAIPrompt,
 		AIAnalysisEnabled:       body.AIAnalysisEnabled,
+		EnableTopicRouting:      body.EnableTopicRouting,
+		TopicField:              body.TopicField,
 	}
 
 	if body.ConnectionType == "http-polling" && body.HTTPConfig != nil {
@@ -207,7 +209,7 @@ func (h *MarketplaceHandler) updateFeed(c *gin.Context) {
 		return
 	}
 	delete(body, "_id")
-	delete(body, "ownerId")
+	delete(body, "userId")
 	delete(body, "ownerName")
 	delete(body, "subscriberCount")
 	updated, err := h.Service.UpdateFeed(ctx, oid, bson.M(body))
@@ -469,11 +471,13 @@ type createFeedPayload struct {
 		ResponseFormat  string              `json:"responseFormat"`
 		DataPath        string              `json:"dataPath"`
 	} `json:"httpConfig"`
-	Tags              []string `json:"tags"`
-	Website           string   `json:"website"`
-	Documentation     string   `json:"documentation"`
-	DefaultAIPrompt   string   `json:"defaultAIPrompt"`
-	AIAnalysisEnabled bool     `json:"aiAnalysisEnabled"`
+	Tags                []string `json:"tags"`
+	Website             string   `json:"website"`
+	Documentation       string   `json:"documentation"`
+	DefaultAIPrompt     string   `json:"defaultAIPrompt"`
+	AIAnalysisEnabled   bool     `json:"aiAnalysisEnabled"`
+	EnableTopicRouting  bool     `json:"enableTopicRouting"`
+	TopicField          string   `json:"topicField"`
 }
 
 // testFeed validates feed connectivity by attempting a WebSocket connection

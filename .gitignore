@@ -68,9 +68,7 @@ debug/
 # Experiments
 experiments/
 
-# Documentation (internal state diagrams and architecture docs)
-STATE_MACHINES.md
-LLM_CONTEXT_AND_MEMORY.md
-BACKEND_API_DOCS.md
-TUI_EXTRACTION_PLAN.md
+# Documentation (exclude all .md files except README.md)
+*.md
+!README.md
 

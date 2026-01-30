@@ -225,19 +225,31 @@ func (s *LLMService) GetAvailableProviders() []string {
 	return names
 }
 
+// makeContextKey creates a storage key for context/memory lookup
+// If topic is empty, returns feedID (backward compatible)
+// If topic is provided, returns "feedID:topic" (compound key)
+func makeContextKey(feedID, topic string) string {
+	if topic == "" {
+		return feedID
+	}
+	return feedID + ":" + topic
+}
+
 // AddFeedData adds streaming feed data to the context
-func (s *LLMService) AddFeedData(feedID, feedName string, data interface{}) {
+// topic parameter is optional - empty string for non-topic feeds
+func (s *LLMService) AddFeedData(feedID, feedName string, data interface{}, topic string) {
 	s.contextMu.Lock()
 	defer s.contextMu.Unlock()
 
-	ctx, exists := s.feedContexts[feedID]
+	contextKey := makeContextKey(feedID, topic)
+	ctx, exists := s.feedContexts[contextKey]
 	if !exists {
 		ctx = &FeedContext{
-			FeedID:   feedID,
+			FeedID:   contextKey,
 			FeedName: feedName,
 			Entries:  make([]map[string]interface{}, 0, s.contextLimit),
 		}
-		s.feedContexts[feedID] = ctx
+		s.feedContexts[contextKey] = ctx
 	}
 
 	// Convert data to map
@@ -274,52 +286,79 @@ func (s *LLMService) AddFeedData(feedID, feedName string, data interface{}) {
 }
 
 // GetFeedContext returns the current context for a feed
-func (s *LLMService) GetFeedContext(feedID string) *FeedContext {
+// Accepts contextKey which can be "feedID" or "feedID:topic"
+func (s *LLMService) GetFeedContext(contextKey string) *FeedContext {
 	s.contextMu.RLock()
 	defer s.contextMu.RUnlock()
-	return s.feedContexts[feedID]
+	return s.feedContexts[contextKey]
 }
 
 // ClearFeedContext removes context for a feed
+// If feedID contains ":", clears specific topic
+// Otherwise, clears all topics for the feed (prefix match)
 func (s *LLMService) ClearFeedContext(feedID string) {
 	s.contextMu.Lock()
-	delete(s.feedContexts, feedID)
-	s.contextMu.Unlock()
+	defer s.contextMu.Unlock()
 
-	// Also clear analysis memory
+	// If specific topic key, delete just that one
+	if _, exists := s.feedContexts[feedID]; exists {
+		delete(s.feedContexts, feedID)
+	} else {
+		// Delete all topics for this feed (prefix match)
+		prefix := feedID + ":"
+		for key := range s.feedContexts {
+			if strings.HasPrefix(key, prefix) || key == feedID {
+				delete(s.feedContexts, key)
+			}
+		}
+	}
+
+	// Also clear analysis memory (same logic)
 	s.analysisMu.Lock()
-	delete(s.analysisMemory, feedID)
-	s.analysisMu.Unlock()
+	defer s.analysisMu.Unlock()
+
+	if _, exists := s.analysisMemory[feedID]; exists {
+		delete(s.analysisMemory, feedID)
+	} else {
+		prefix := feedID + ":"
+		for key := range s.analysisMemory {
+			if strings.HasPrefix(key, prefix) || key == feedID {
+				delete(s.analysisMemory, key)
+			}
+		}
+	}
 }
 
 // GetAnalysisMemory returns the analysis memory for a feed
-func (s *LLMService) GetAnalysisMemory(feedID string) []AnalysisResult {
+// Accepts contextKey which can be "feedID" or "feedID:topic"
+func (s *LLMService) GetAnalysisMemory(contextKey string) []AnalysisResult {
 	s.analysisMu.RLock()
 	defer s.analysisMu.RUnlock()
 
-	if mem, exists := s.analysisMemory[feedID]; exists {
+	if mem, exists := s.analysisMemory[contextKey]; exists {
 		return mem.GetResults()
 	}
 	return nil
 }
 
 // addAnalysisResult stores a new analysis result in memory
-func (s *LLMService) addAnalysisResult(feedID, question, answer, provider string) {
+// contextKey can be "feedID" or "feedID:topic"
+func (s *LLMService) addAnalysisResult(contextKey, question, answer, provider string) {
 	s.analysisMu.Lock()
 	defer s.analysisMu.Unlock()
 
-	mem, exists := s.analysisMemory[feedID]
+	mem, exists := s.analysisMemory[contextKey]
 	if !exists {
 		mem = &AnalysisMemory{
-			FeedID:  feedID,
+			FeedID:  contextKey,
 			Results: make([]AnalysisResult, 0, s.analysisLimit),
 			Limit:   s.analysisLimit,
 		}
-		s.analysisMemory[feedID] = mem
+		s.analysisMemory[contextKey] = mem
 	}
 
 	mem.AddResult(question, answer, provider)
-	log.Printf("📝 Stored analysis result for feed %s (total: %d)", feedID, len(mem.Results))
+	log.Printf("📝 Stored analysis result for context %s (total: %d)", contextKey, len(mem.Results))
 }
 
 // QueryRequest represents a question about feed data
@@ -394,15 +433,29 @@ func (s *LLMService) Query(ctx context.Context, req QueryRequest) (*QueryRespons
 			})
 		}
 
-		// Convert to TSLN
-		result, err := tsln.ConvertToTSLN(points, nil)
-		if err != nil {
-			// Fallback to JSON if TSLN fails
-			log.Printf("⚠️ TSLN conversion failed: %v", err)
+		// Convert to TSLN with panic recovery
+		var tslnSuccess bool
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("⚠️ TSLN conversion panicked: %v", r)
+					tslnSuccess = false
+				}
+			}()
+			result, err := tsln.ConvertToTSLN(points, nil)
+			if err != nil {
+				log.Printf("⚠️ TSLN conversion failed: %v", err)
+				tslnSuccess = false
+			} else {
+				contextData = result.TSLN
+				tslnSuccess = true
+			}
+		}()
+
+		// Fallback to JSON if TSLN fails or panics
+		if !tslnSuccess {
 			bytes, _ := json.Marshal(feedCtx.Entries)
 			contextData = string(bytes)
-		} else {
-			contextData = result.TSLN
 		}
 	}
 
