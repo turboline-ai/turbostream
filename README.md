@@ -86,7 +86,7 @@ ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
 > 📹 **Coming Soon:** Watch our Railway deployment guide
 
 1. **Push your code** to GitHub
-2. **Connect to Railway**: [railway.app](https://railway.app)
+2. **Connect to Railway**: [railway.app](https://railway.com?referralCode=imTbk0)
 3. **Add environment variables** in Railway dashboard
 4. **Deploy** - Railway auto-detects your `Dockerfile`
 
