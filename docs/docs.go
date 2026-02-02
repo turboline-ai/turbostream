@@ -26,12 +26,8 @@ const docTemplate = `{
         "/health": {
             "get": {
                 "description": "Check the health status of the API server and its dependencies",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Health"
-                ],
+                "produces": ["application/json"],
+                "tags": ["Health"],
                 "summary": "Health check",
                 "responses": {
                     "200": {
@@ -46,15 +42,9 @@ const docTemplate = `{
         "/api/auth/register": {
             "post": {
                 "description": "Register a new user account with email, password, and name",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Authentication"
-                ],
+                "consumes": ["application/json"],
+                "produces": ["application/json"],
+                "tags": ["Authentication"],
                 "summary": "Register new user",
                 "parameters": [
                     {
@@ -86,15 +76,9 @@ const docTemplate = `{
         "/api/auth/login": {
             "post": {
                 "description": "Login with email and password. Returns JWT token for authentication. Supports 2FA with TOTP token.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Authentication"
-                ],
+                "consumes": ["application/json"],
+                "produces": ["application/json"],
+                "tags": ["Authentication"],
                 "summary": "User login",
                 "parameters": [
                     {
@@ -125,18 +109,10 @@ const docTemplate = `{
         },
         "/api/auth/me": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
+                "security": [{"BearerAuth": []}],
                 "description": "Get current authenticated user profile with token usage information",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Authentication"
-                ],
+                "produces": ["application/json"],
+                "tags": ["Authentication"],
                 "summary": "Get current user",
                 "responses": {
                     "200": {
@@ -157,12 +133,8 @@ const docTemplate = `{
         "/api/marketplace/feeds": {
             "get": {
                 "description": "List all public feeds with optional filtering by category, search query, or limit",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Marketplace"
-                ],
+                "produces": ["application/json"],
+                "tags": ["Marketplace"],
                 "summary": "Browse public feeds",
                 "parameters": [
                     {
@@ -194,21 +166,11 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
+                "security": [{"BearerAuth": []}],
                 "description": "Create a new custom feed with WebSocket or HTTP connection configuration",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Marketplace"
-                ],
+                "consumes": ["application/json"],
+                "produces": ["application/json"],
+                "tags": ["Marketplace"],
                 "summary": "Create custom feed",
                 "parameters": [
                     {
@@ -246,12 +208,8 @@ const docTemplate = `{
         "/api/marketplace/feeds/{id}": {
             "get": {
                 "description": "Get detailed information about a specific feed by ID",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Marketplace"
-                ],
+                "produces": ["application/json"],
+                "tags": ["Marketplace"],
                 "summary": "Get feed by ID",
                 "parameters": [
                     {
@@ -278,21 +236,11 @@ const docTemplate = `{
                 }
             },
             "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
+                "security": [{"BearerAuth": []}],
                 "description": "Update feed properties. Only feed owner can update.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Marketplace"
-                ],
+                "consumes": ["application/json"],
+                "produces": ["application/json"],
+                "tags": ["Marketplace"],
                 "summary": "Update feed",
                 "parameters": [
                     {
@@ -334,18 +282,10 @@ const docTemplate = `{
                 }
             },
             "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
+                "security": [{"BearerAuth": []}],
                 "description": "Delete a feed. Only feed owner can delete.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Marketplace"
-                ],
+                "produces": ["application/json"],
+                "tags": ["Marketplace"],
                 "summary": "Delete feed",
                 "parameters": [
                     {
@@ -380,18 +320,10 @@ const docTemplate = `{
         },
         "/api/marketplace/subscribe/{feedId}": {
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
+                "security": [{"BearerAuth": []}],
                 "description": "Subscribe to a feed to receive real-time updates via WebSocket",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Marketplace"
-                ],
+                "produces": ["application/json"],
+                "tags": ["Marketplace"],
                 "summary": "Subscribe to feed",
                 "parameters": [
                     {
@@ -426,18 +358,10 @@ const docTemplate = `{
         },
         "/api/marketplace/unsubscribe/{feedId}": {
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
+                "security": [{"BearerAuth": []}],
                 "description": "Unsubscribe from a feed",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Marketplace"
-                ],
+                "produces": ["application/json"],
+                "tags": ["Marketplace"],
                 "summary": "Unsubscribe from feed",
                 "parameters": [
                     {
@@ -466,18 +390,10 @@ const docTemplate = `{
         },
         "/api/marketplace/subscriptions": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
+                "security": [{"BearerAuth": []}],
                 "description": "Get all active subscriptions for current user",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Marketplace"
-                ],
+                "produces": ["application/json"],
+                "tags": ["Marketplace"],
                 "summary": "List user subscriptions",
                 "responses": {
                     "200": {
@@ -495,15 +411,175 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/marketplace/feeds/{id}/topic-prompts": {
+            "get": {
+                "security": [{"BearerAuth": []}],
+                "description": "Retrieve all topic-specific prompt configurations for a feed",
+                "produces": ["application/json"],
+                "tags": ["Marketplace"],
+                "summary": "Get topic prompts",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Feed ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "feedId": {"type": "string"},
+                                "systemPrompt": {"type": "string"},
+                                "topicCount": {"type": "integer"},
+                                "data": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "$ref": "#/definitions/TopicPromptCfg"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/marketplace/feeds/{id}/topic-prompts/{topic}": {
+            "put": {
+                "security": [{"BearerAuth": []}],
+                "description": "Configure custom LLM prompts for a specific topic within a feed",
+                "consumes": ["application/json"],
+                "produces": ["application/json"],
+                "tags": ["Marketplace"],
+                "summary": "Set topic-specific prompt",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Feed ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Topic name",
+                        "name": "topic",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Topic prompt configuration",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/TopicPromptCfg"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "data": {"$ref": "#/definitions/FeedResponse"},
+                                "topic": {"type": "string"}
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [{"BearerAuth": []}],
+                "description": "Remove custom prompt configuration for a specific topic",
+                "produces": ["application/json"],
+                "tags": ["Marketplace"],
+                "summary": "Delete topic prompt",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Feed ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Topic name",
+                        "name": "topic",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "message": {"type": "string"},
+                                "topic": {"type": "string"}
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/llm/providers": {
             "get": {
                 "description": "Get list of available LLM providers (OpenAI, Anthropic, Google, Mistral, xAI, Ollama, Azure)",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "LLM"
-                ],
+                "produces": ["application/json"],
+                "tags": ["LLM"],
                 "summary": "Get LLM providers",
                 "responses": {
                     "200": {
@@ -517,21 +593,11 @@ const docTemplate = `{
         },
         "/api/llm/query": {
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
+                "security": [{"BearerAuth": []}],
                 "description": "Query feed data with an LLM. Returns complete response with token usage.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "LLM"
-                ],
+                "consumes": ["application/json"],
+                "produces": ["application/json"],
+                "tags": ["LLM"],
                 "summary": "Query feed with LLM",
                 "parameters": [
                     {
@@ -562,21 +628,11 @@ const docTemplate = `{
         },
         "/api/llm/query/stream": {
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
+                "security": [{"BearerAuth": []}],
                 "description": "Stream LLM responses using Server-Sent Events (SSE). Returns tokens as they are generated.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "text/event-stream"
-                ],
-                "tags": [
-                    "LLM"
-                ],
+                "consumes": ["application/json"],
+                "produces": ["text/event-stream"],
+                "tags": ["LLM"],
                 "summary": "Stream LLM query",
                 "parameters": [
                     {
@@ -605,12 +661,8 @@ const docTemplate = `{
         "/api/settings/categories": {
             "get": {
                 "description": "Get all available feed categories",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Settings"
-                ],
+                "produces": ["application/json"],
+                "tags": ["Settings"],
                 "summary": "Get categories",
                 "responses": {
                     "200": {
@@ -625,9 +677,7 @@ const docTemplate = `{
         "/ws": {
             "get": {
                 "description": "WebSocket endpoint for real-time feed streaming. Connect and send authentication message, then subscribe to feeds. For testing, use CLI tools like wscat or Postman with WebSocket support.",
-                "tags": [
-                    "WebSocket"
-                ],
+                "tags": ["WebSocket"],
                 "summary": "WebSocket streaming endpoint",
                 "responses": {
                     "101": {
@@ -662,11 +712,7 @@ const docTemplate = `{
         },
         "RegisterRequest": {
             "type": "object",
-            "required": [
-                "email",
-                "password",
-                "name"
-            ],
+            "required": ["email", "password", "name"],
             "properties": {
                 "email": {
                     "type": "string",
@@ -686,10 +732,7 @@ const docTemplate = `{
         },
         "LoginRequest": {
             "type": "object",
-            "required": [
-                "email",
-                "password"
-            ],
+            "required": ["email", "password"],
             "properties": {
                 "email": {
                     "type": "string",
@@ -796,14 +839,7 @@ const docTemplate = `{
         },
         "CreateFeedRequest": {
             "type": "object",
-            "required": [
-                "name",
-                "description",
-                "url",
-                "category",
-                "isPublic",
-                "connectionType"
-            ],
+            "required": ["name", "description", "url", "category", "isPublic", "connectionType"],
             "properties": {
                 "name": {
                     "type": "string",
@@ -827,10 +863,7 @@ const docTemplate = `{
                 },
                 "connectionType": {
                     "type": "string",
-                    "enum": [
-                        "websocket",
-                        "http"
-                    ],
+                    "enum": ["websocket", "http"],
                     "example": "websocket"
                 },
                 "enableTopicRouting": {
@@ -849,20 +882,14 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "description": "Messages to send on connection",
-                    "example": [
-                        "{\"method\":\"SUBSCRIBE\",\"params\":[\"btcusdt@trade\"],\"id\":1}"
-                    ]
+                    "example": ["{\\"method\\":\\"SUBSCRIBE\\",\\"params\\":[\\"btcusdt@trade\\"],\\"id\\":1}"]
                 },
                 "tags": {
                     "type": "array",
                     "items": {
                         "type": "string"
                     },
-                    "example": [
-                        "bitcoin",
-                        "trading",
-                        "real-time"
-                    ]
+                    "example": ["bitcoin", "trading", "real-time"]
                 }
             }
         },
@@ -1044,10 +1071,7 @@ const docTemplate = `{
         },
         "LLMQueryRequest": {
             "type": "object",
-            "required": [
-                "feedId",
-                "question"
-            ],
+            "required": ["feedId", "question"],
             "properties": {
                 "feedId": {
                     "type": "string",
@@ -1059,15 +1083,7 @@ const docTemplate = `{
                 },
                 "provider": {
                     "type": "string",
-                    "enum": [
-                        "openai",
-                        "anthropic",
-                        "google",
-                        "mistral",
-                        "xai",
-                        "ollama",
-                        "azure"
-                    ],
+                    "enum": ["openai", "anthropic", "google", "mistral", "xai", "ollama", "azure"],
                     "example": "anthropic"
                 },
                 "systemPrompt": {
@@ -1114,11 +1130,7 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     },
-                    "example": [
-                        "openai",
-                        "anthropic",
-                        "google"
-                    ]
+                    "example": ["openai", "anthropic", "google"]
                 }
             }
         },
@@ -1168,6 +1180,26 @@ const docTemplate = `{
                     "example": "Error message describing what went wrong"
                 }
             }
+        },
+        "TopicPromptCfg": {
+            "type": "object",
+            "properties": {
+                "systemPrompt": {
+                    "type": "string",
+                    "description": "Custom system prompt for this topic (defines AI's role and expertise)",
+                    "example": "You are a financial analyst specializing in cryptocurrency markets."
+                },
+                "userPrompt": {
+                    "type": "string",
+                    "description": "Custom user prompt template (reserved for future use)",
+                    "example": ""
+                },
+                "question": {
+                    "type": "string",
+                    "description": "The specific question to ask the LLM during each analysis cycle",
+                    "example": "Analyze the recent price movements and trading volume. Identify any significant market trends or anomalies."
+                }
+            }
         }
     },
     "securityDefinitions": {
@@ -1204,7 +1236,8 @@ const docTemplate = `{
             "name": "WebSocket"
         }
     ]
-}`
+}
+`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{

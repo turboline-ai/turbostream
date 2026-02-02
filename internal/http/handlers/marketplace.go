@@ -48,10 +48,21 @@ func (h *MarketplaceHandler) RegisterRoutes(public, protected *gin.RouterGroup) 
 	protected.POST("/feeds/:feedId/data", h.submitFeedData)
 	// Use the same wildcard name (:id) as the base feed route to avoid Gin conflicts.
 	protected.PUT("/feeds/:id/ai-prompt", h.updatePrompt)
+	protected.PUT("/feeds/:id/topic-prompts/:topic", h.setTopicPrompt)
+	protected.GET("/feeds/:id/topic-prompts", h.getTopicPrompts)
+	protected.DELETE("/feeds/:id/topic-prompts/:topic", h.deleteTopicPrompt)
 	protected.POST("/test-feed", h.testFeed)
 }
 
 // listFeeds retrieves all public feeds with optional category filter
+// @Summary      List all feeds
+// @Description  Retrieves all public feeds with optional category filter
+// @Tags         Marketplace
+// @Produce      json
+// @Param        category  query  string  false  "Filter by category"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Router       /api/marketplace/feeds [get]
 func (h *MarketplaceHandler) listFeeds(c *gin.Context) {
 	category := c.Query("category")
 	ctx, cancel := contextWithTimeout(c)
@@ -65,6 +76,14 @@ func (h *MarketplaceHandler) listFeeds(c *gin.Context) {
 }
 
 // popularFeeds retrieves feeds sorted by subscriber count with optional limit
+// @Summary      Get popular feeds
+// @Description  Retrieves feeds sorted by subscriber count
+// @Tags         Marketplace
+// @Produce      json
+// @Param        limit  query  integer  false  "Maximum number of feeds"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Router       /api/marketplace/feeds/popular [get]
 func (h *MarketplaceHandler) popularFeeds(c *gin.Context) {
 	limit := parseLimit(c.Query("limit"), 10)
 	ctx, cancel := contextWithTimeout(c)
@@ -78,6 +97,14 @@ func (h *MarketplaceHandler) popularFeeds(c *gin.Context) {
 }
 
 // recentFeeds retrieves the most recently created feeds with optional limit
+// @Summary      Get recent feeds
+// @Description  Retrieves the most recently created feeds
+// @Tags         Marketplace
+// @Produce      json
+// @Param        limit  query  integer  false  "Maximum number of feeds"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Router       /api/marketplace/feeds/recent [get]
 func (h *MarketplaceHandler) recentFeeds(c *gin.Context) {
 	limit := parseLimit(c.Query("limit"), 10)
 	ctx, cancel := contextWithTimeout(c)
@@ -91,6 +118,16 @@ func (h *MarketplaceHandler) recentFeeds(c *gin.Context) {
 }
 
 // searchFeeds searches feeds by name, description, or tags with optional category filter
+// @Summary      Search feeds
+// @Description  Searches feeds by name, description, or tags
+// @Tags         Marketplace
+// @Produce      json
+// @Param        q         query  string  true   "Search query"
+// @Param        category  query  string  false  "Filter by category"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Router       /api/marketplace/feeds/search [get]
 func (h *MarketplaceHandler) searchFeeds(c *gin.Context) {
 	q := c.Query("q")
 	category := c.Query("category")
@@ -105,6 +142,14 @@ func (h *MarketplaceHandler) searchFeeds(c *gin.Context) {
 }
 
 // getFeed retrieves a single feed by ID
+// @Summary      Get feed by ID
+// @Description  Retrieves a single feed by ID
+// @Tags         Marketplace
+// @Produce      json
+// @Param        id   path  string  true  "Feed ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      404  {object}  map[string]interface{}
+// @Router       /api/marketplace/feeds/{id} [get]
 func (h *MarketplaceHandler) getFeed(c *gin.Context) {
 	id := c.Param("id")
 	ctx, cancel := contextWithTimeout(c)
@@ -118,6 +163,16 @@ func (h *MarketplaceHandler) getFeed(c *gin.Context) {
 }
 
 // createFeed creates a new feed in the marketplace and auto-subscribes the creator
+// @Summary      Create feed
+// @Description  Creates a new feed in the marketplace
+// @Tags         Marketplace
+// @Accept       json
+// @Produce      json
+// @Param        body  body  object  true  "Feed details"
+// @Success      201  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/marketplace/feeds [post]
 func (h *MarketplaceHandler) createFeed(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	username := c.GetString("username")
@@ -188,6 +243,19 @@ func (h *MarketplaceHandler) createFeed(c *gin.Context) {
 }
 
 // updateFeed updates feed properties with authorization check
+// @Summary      Update feed
+// @Description  Updates feed properties (owner only)
+// @Tags         Marketplace
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string  true  "Feed ID"
+// @Param        body  body  object  true  "Updated fields"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Failure      403  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/marketplace/feeds/{id} [put]
 func (h *MarketplaceHandler) updateFeed(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	idStr := c.Param("id")
@@ -221,6 +289,17 @@ func (h *MarketplaceHandler) updateFeed(c *gin.Context) {
 }
 
 // deleteFeed removes a feed from the marketplace with authorization check
+// @Summary      Delete feed
+// @Description  Removes a feed from the marketplace (owner only)
+// @Tags         Marketplace
+// @Produce      json
+// @Param        id   path  string  true  "Feed ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Failure      403  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/marketplace/feeds/{id} [delete]
 func (h *MarketplaceHandler) deleteFeed(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	idStr := c.Param("id")
@@ -248,6 +327,14 @@ func (h *MarketplaceHandler) deleteFeed(c *gin.Context) {
 }
 
 // myFeeds retrieves all feeds owned by the authenticated user
+// @Summary      Get my feeds
+// @Description  Retrieves all feeds owned by the authenticated user
+// @Tags         Marketplace
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/marketplace/my-feeds [get]
 func (h *MarketplaceHandler) myFeeds(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	ctx, cancel := contextWithTimeout(c)
@@ -261,6 +348,15 @@ func (h *MarketplaceHandler) myFeeds(c *gin.Context) {
 }
 
 // subscribe creates a subscription to a feed and initiates WebSocket connection
+// @Summary      Subscribe to feed
+// @Description  Creates a subscription to a feed
+// @Tags         Marketplace
+// @Produce      json
+// @Param        feedId   path  string  true  "Feed ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/marketplace/subscribe/{feedId} [post]
 func (h *MarketplaceHandler) subscribe(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	feedID := c.Param("feedId")
@@ -279,6 +375,15 @@ func (h *MarketplaceHandler) subscribe(c *gin.Context) {
 }
 
 // unsubscribe deactivates a user's subscription to a feed
+// @Summary      Unsubscribe from feed
+// @Description  Deactivates a user's subscription to a feed
+// @Tags         Marketplace
+// @Produce      json
+// @Param        feedId   path  string  true  "Feed ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/marketplace/unsubscribe/{feedId} [post]
 func (h *MarketplaceHandler) unsubscribe(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	feedID := c.Param("feedId")
@@ -292,6 +397,14 @@ func (h *MarketplaceHandler) unsubscribe(c *gin.Context) {
 }
 
 // subscriptions retrieves all subscriptions for the authenticated user
+// @Summary      Get my subscriptions
+// @Description  Retrieves all subscriptions for the authenticated user
+// @Tags         Marketplace
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/marketplace/subscriptions [get]
 func (h *MarketplaceHandler) subscriptions(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	ctx, cancel := contextWithTimeout(c)
@@ -305,6 +418,18 @@ func (h *MarketplaceHandler) subscriptions(c *gin.Context) {
 }
 
 // updateSubscription modifies subscription settings like custom prompts
+// @Summary      Update subscription settings
+// @Description  Modifies subscription settings like custom prompts
+// @Tags         Marketplace
+// @Accept       json
+// @Produce      json
+// @Param        feedId  path  string  true  "Feed ID"
+// @Param        body    body  object  true  "Settings to update"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/marketplace/subscriptions/{feedId}/settings [put]
 func (h *MarketplaceHandler) updateSubscription(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	feedID := c.Param("feedId")
@@ -323,6 +448,19 @@ func (h *MarketplaceHandler) updateSubscription(c *gin.Context) {
 }
 
 // submitFeedData allows feed owners to broadcast data to subscribers via WebSocket
+// @Summary      Submit feed data
+// @Description  Allows feed owners to broadcast data to subscribers
+// @Tags         Marketplace
+// @Accept       json
+// @Produce      json
+// @Param        feedId  path  string  true  "Feed ID"
+// @Param        body    body  object{data=object,eventName=string}  true  "Data to broadcast"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Failure      403  {object}  map[string]interface{}
+// @Failure      404  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/marketplace/feeds/{feedId}/data [post]
 func (h *MarketplaceHandler) submitFeedData(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	feedID := c.Param("feedId")
@@ -361,6 +499,19 @@ func (h *MarketplaceHandler) submitFeedData(c *gin.Context) {
 }
 
 // updatePrompt updates the default AI prompt for a feed with authorization check
+// @Summary      Update feed AI prompt
+// @Description  Updates the default AI prompt for a feed (owner only)
+// @Tags         Marketplace
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string  true  "Feed ID"
+// @Param        body  body  object{defaultAIPrompt=string}  true  "AI prompt"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Failure      403  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/marketplace/feeds/{id}/ai-prompt [put]
 func (h *MarketplaceHandler) updatePrompt(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	feedID := c.Param("id")
@@ -384,6 +535,175 @@ func (h *MarketplaceHandler) updatePrompt(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": updated})
+}
+
+// setTopicPrompt sets or updates the prompt configuration for a specific topic
+// @Summary      Set topic-specific prompt
+// @Description  Configure custom LLM prompts for a specific topic within a feed
+// @Tags         Marketplace
+// @Accept       json
+// @Produce      json
+// @Param        id     path      string  true  "Feed ID"
+// @Param        topic  path      string  true  "Topic name"
+// @Param        body   body      models.TopicPromptCfg  true  "Topic prompt configuration"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Failure      403  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/marketplace/feeds/{id}/topic-prompts/{topic} [put]
+func (h *MarketplaceHandler) setTopicPrompt(c *gin.Context) {
+	userID := c.MustGet("userId").(primitive.ObjectID)
+	feedID := c.Param("id")
+	topic := c.Param("topic")
+
+	var promptCfg models.TopicPromptCfg
+	if err := c.ShouldBindJSON(&promptCfg); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid payload"})
+		return
+	}
+
+	ctx, cancel := contextWithTimeout(c)
+	defer cancel()
+
+	feed, err := h.Service.GetFeedByID(ctx, feedID)
+	if err != nil || feed.OwnerID != userID.Hex() {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "not authorized"})
+		return
+	}
+
+	// Initialize TopicPrompts map if nil
+	if feed.TopicPrompts == nil {
+		feed.TopicPrompts = make(map[string]*models.TopicPromptCfg)
+	}
+
+	// Set the topic prompt configuration
+	feed.TopicPrompts[topic] = &promptCfg
+
+	// Update the feed
+	updated, err := h.Service.UpdateFeed(ctx, feed.ID, bson.M{"topicPrompts": feed.TopicPrompts})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	// Restart topic scheduler if it's running to pick up new config
+	if h.Sockets != nil {
+		h.Sockets.StopFeed(feedID)
+		time.Sleep(100 * time.Millisecond)
+		if err := h.Sockets.ConnectFeed(*updated); err != nil {
+			// Log but don't fail - config is saved
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"data":    updated,
+				"warning": "Topic prompt saved but feed reconnection failed",
+			})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": updated, "topic": topic})
+}
+
+// getTopicPrompts retrieves all topic-specific prompts for a feed
+// @Summary      Get topic prompts
+// @Description  Retrieve all topic-specific prompt configurations for a feed
+// @Tags         Marketplace
+// @Produce      json
+// @Param        id  path  string  true  "Feed ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      403  {object}  map[string]interface{}
+// @Failure      404  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/marketplace/feeds/{id}/topic-prompts [get]
+func (h *MarketplaceHandler) getTopicPrompts(c *gin.Context) {
+	userID := c.MustGet("userId").(primitive.ObjectID)
+	feedID := c.Param("id")
+
+	ctx, cancel := contextWithTimeout(c)
+	defer cancel()
+
+	feed, err := h.Service.GetFeedByID(ctx, feedID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "feed not found"})
+		return
+	}
+
+	// Only owner can view topic prompts
+	if feed.OwnerID != userID.Hex() {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "not authorized"})
+		return
+	}
+
+	if feed.TopicPrompts == nil {
+		feed.TopicPrompts = make(map[string]*models.TopicPromptCfg)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":      true,
+		"data":         feed.TopicPrompts,
+		"feedId":       feedID,
+		"topicCount":   len(feed.TopicPrompts),
+		"systemPrompt": feed.SystemPrompt,
+	})
+}
+
+// deleteTopicPrompt removes a topic-specific prompt configuration
+// @Summary      Delete topic prompt
+// @Description  Remove custom prompt configuration for a specific topic
+// @Tags         Marketplace
+// @Produce      json
+// @Param        id     path  string  true  "Feed ID"
+// @Param        topic  path  string  true  "Topic name"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      403  {object}  map[string]interface{}
+// @Failure      404  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/marketplace/feeds/{id}/topic-prompts/{topic} [delete]
+func (h *MarketplaceHandler) deleteTopicPrompt(c *gin.Context) {
+	userID := c.MustGet("userId").(primitive.ObjectID)
+	feedID := c.Param("id")
+	topic := c.Param("topic")
+
+	ctx, cancel := contextWithTimeout(c)
+	defer cancel()
+
+	feed, err := h.Service.GetFeedByID(ctx, feedID)
+	if err != nil || feed.OwnerID != userID.Hex() {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "not authorized"})
+		return
+	}
+
+	if feed.TopicPrompts == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "topic prompt not found"})
+		return
+	}
+
+	// Delete the topic prompt
+	delete(feed.TopicPrompts, topic)
+
+	// Update the feed
+	updated, err := h.Service.UpdateFeed(ctx, feed.ID, bson.M{"topicPrompts": feed.TopicPrompts})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	// Restart topic scheduler if it's running
+	if h.Sockets != nil {
+		h.Sockets.StopFeed(feedID)
+		time.Sleep(100 * time.Millisecond)
+		if err := h.Sockets.ConnectFeed(*updated); err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"data":    updated,
+				"warning": "Topic prompt deleted but feed reconnection failed",
+			})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "topic prompt deleted", "topic": topic})
 }
 
 // parseLimit parses a query parameter as an integer limit with fallback
@@ -481,6 +801,16 @@ type createFeedPayload struct {
 }
 
 // testFeed validates feed connectivity by attempting a WebSocket connection
+// @Summary      Test feed connection
+// @Description  Validates feed connectivity
+// @Tags         Marketplace
+// @Accept       json
+// @Produce      json
+// @Param        body  body  object{connectionType=string,url=string}  true  "Connection details"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/marketplace/test-feed [post]
 func (h *MarketplaceHandler) testFeed(c *gin.Context) {
 	var payload testFeedPayload
 	if err := c.ShouldBindJSON(&payload); err != nil || payload.URL == "" {

@@ -34,6 +34,13 @@ func (h *SettingsHandler) RegisterRoutes(r *gin.RouterGroup) {
 }
 
 // categories retrieves all available feed categories
+// @Summary      Get categories
+// @Description  Retrieves all available feed categories
+// @Tags         Settings
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Router       /api/settings/categories [get]
 func (h *SettingsHandler) categories(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
@@ -46,6 +53,15 @@ func (h *SettingsHandler) categories(c *gin.Context) {
 }
 
 // category retrieves a single category by its key
+// @Summary      Get category by key
+// @Description  Retrieves a single category by its key
+// @Tags         Settings
+// @Produce      json
+// @Param        key  path  string  true  "Category key"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      404  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Router       /api/settings/categories/{key} [get]
 func (h *SettingsHandler) category(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
@@ -63,6 +79,13 @@ func (h *SettingsHandler) category(c *gin.Context) {
 }
 
 // allSettings returns all settings (currently just categories for backend parity)
+// @Summary      Get all settings
+// @Description  Returns all settings
+// @Tags         Settings
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Router       /api/settings/all [get]
 func (h *SettingsHandler) allSettings(c *gin.Context) {
 	// For parity with the TS backend, this simply returns categories for now.
 	h.categories(c)
@@ -71,11 +94,28 @@ func (h *SettingsHandler) allSettings(c *gin.Context) {
 // ---- User categories stubs (no persistence yet) ----
 
 // userCategories retrieves user-specific categories (stub implementation)
+// @Summary      Get user categories
+// @Description  Retrieves user-specific categories
+// @Tags         Settings
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/settings/user/categories [get]
 func (h *SettingsHandler) userCategories(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": []interface{}{}})
 }
 
 // createUserCategory creates a new user-specific category (stub implementation)
+// @Summary      Create user category
+// @Description  Creates a new user-specific category
+// @Tags         Settings
+// @Accept       json
+// @Produce      json
+// @Param        body  body  object{label=string,key=string}  true  "Category details"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/settings/user/categories [post]
 func (h *SettingsHandler) createUserCategory(c *gin.Context) {
 	var body struct {
 		Label string `json:"label"`
@@ -101,6 +141,17 @@ func (h *SettingsHandler) createUserCategory(c *gin.Context) {
 }
 
 // updateUserCategory updates a user-specific category (stub implementation)
+// @Summary      Update user category
+// @Description  Updates a user-specific category
+// @Tags         Settings
+// @Accept       json
+// @Produce      json
+// @Param        key   path  string  true  "Category key"
+// @Param        body  body  object  true  "Updated fields"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/settings/user/categories/{key} [put]
 func (h *SettingsHandler) updateUserCategory(c *gin.Context) {
 	key := c.Param("key")
 	var body map[string]interface{}
@@ -121,11 +172,27 @@ func (h *SettingsHandler) updateUserCategory(c *gin.Context) {
 }
 
 // deleteUserCategory removes a user-specific category (stub implementation)
+// @Summary      Delete user category
+// @Description  Removes a user-specific category
+// @Tags         Settings
+// @Produce      json
+// @Param        key  path  string  true  "Category key"
+// @Success      200  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/settings/user/categories/{key} [delete]
 func (h *SettingsHandler) deleteUserCategory(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "deleted"})
 }
 
 // checkCategoryKey validates if a category key is available for use (stub implementation)
+// @Summary      Check category key availability
+// @Description  Validates if a category key is available for use
+// @Tags         Settings
+// @Produce      json
+// @Param        key  path  string  true  "Category key to check"
+// @Success      200  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/settings/user/categories/check/{key} [get]
 func (h *SettingsHandler) checkCategoryKey(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": map[string]interface{}{"available": true}})
 }

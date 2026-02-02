@@ -406,6 +406,170 @@
                 }
             }
         },
+        "/api/marketplace/feeds/{id}/topic-prompts": {
+            "get": {
+                "security": [{"BearerAuth": []}],
+                "description": "Retrieve all topic-specific prompt configurations for a feed",
+                "produces": ["application/json"],
+                "tags": ["Marketplace"],
+                "summary": "Get topic prompts",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Feed ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "feedId": {"type": "string"},
+                                "systemPrompt": {"type": "string"},
+                                "topicCount": {"type": "integer"},
+                                "data": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "$ref": "#/definitions/TopicPromptCfg"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/marketplace/feeds/{id}/topic-prompts/{topic}": {
+            "put": {
+                "security": [{"BearerAuth": []}],
+                "description": "Configure custom LLM prompts for a specific topic within a feed",
+                "consumes": ["application/json"],
+                "produces": ["application/json"],
+                "tags": ["Marketplace"],
+                "summary": "Set topic-specific prompt",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Feed ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Topic name",
+                        "name": "topic",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Topic prompt configuration",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/TopicPromptCfg"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "data": {"$ref": "#/definitions/FeedResponse"},
+                                "topic": {"type": "string"}
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [{"BearerAuth": []}],
+                "description": "Remove custom prompt configuration for a specific topic",
+                "produces": ["application/json"],
+                "tags": ["Marketplace"],
+                "summary": "Delete topic prompt",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Feed ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Topic name",
+                        "name": "topic",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "message": {"type": "string"},
+                                "topic": {"type": "string"}
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/llm/providers": {
             "get": {
                 "description": "Get list of available LLM providers (OpenAI, Anthropic, Google, Mistral, xAI, Ollama, Azure)",
@@ -1009,6 +1173,26 @@
                 "message": {
                     "type": "string",
                     "example": "Error message describing what went wrong"
+                }
+            }
+        },
+        "TopicPromptCfg": {
+            "type": "object",
+            "properties": {
+                "systemPrompt": {
+                    "type": "string",
+                    "description": "Custom system prompt for this topic (defines AI's role and expertise)",
+                    "example": "You are a financial analyst specializing in cryptocurrency markets."
+                },
+                "userPrompt": {
+                    "type": "string",
+                    "description": "Custom user prompt template (reserved for future use)",
+                    "example": ""
+                },
+                "question": {
+                    "type": "string",
+                    "description": "The specific question to ask the LLM during each analysis cycle",
+                    "example": "Analyze the recent price movements and trading volume. Identify any significant market trends or anomalies."
                 }
             }
         }

@@ -21,6 +21,12 @@ func NewLLMHandler(llm *services.LLMService, sockets *socket.Manager) *LLMHandle
 }
 
 // GetProviders returns available LLM providers
+// @Summary      Get LLM providers
+// @Description  Returns available LLM providers and their status
+// @Tags         LLM
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Router       /api/llm/providers [get]
 // GET /api/llm/providers
 func (h *LLMHandler) GetProviders(c *gin.Context) {
 	providers := h.llm.GetAvailableProviders()
@@ -31,6 +37,14 @@ func (h *LLMHandler) GetProviders(c *gin.Context) {
 }
 
 // GetFeedContext returns the current context for a feed
+// @Summary      Get feed context
+// @Description  Returns the current context for a feed
+// @Tags         LLM
+// @Produce      json
+// @Param        feedId  path  string  true  "Feed ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Router       /api/llm/context/{feedId} [get]
 // GET /api/llm/context/:feedId
 func (h *LLMHandler) GetFeedContext(c *gin.Context) {
 	feedID := c.Param("feedId")
@@ -61,6 +75,14 @@ func (h *LLMHandler) GetFeedContext(c *gin.Context) {
 }
 
 // ClearFeedContext clears the context for a feed
+// @Summary      Clear feed context
+// @Description  Clears the context for a feed
+// @Tags         LLM
+// @Produce      json
+// @Param        feedId  path  string  true  "Feed ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Router       /api/llm/context/{feedId} [delete]
 // DELETE /api/llm/context/:feedId
 func (h *LLMHandler) ClearFeedContext(c *gin.Context) {
 	feedID := c.Param("feedId")
@@ -85,6 +107,17 @@ type QueryRequest struct {
 }
 
 // Query answers a question about feed data
+// @Summary      Query feed data
+// @Description  Answers a question about feed data using AI
+// @Tags         LLM
+// @Accept       json
+// @Produce      json
+// @Param        body  body  QueryRequest  true  "Query request"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Failure      503  {object}  map[string]interface{}
+// @Router       /api/llm/query [post]
 // POST /api/llm/query
 func (h *LLMHandler) Query(c *gin.Context) {
 	if !h.llm.Enabled() {
@@ -120,6 +153,16 @@ func (h *LLMHandler) Query(c *gin.Context) {
 }
 
 // StreamQuery streams the LLM response using Server-Sent Events
+// @Summary      Stream query response
+// @Description  Streams LLM response using Server-Sent Events
+// @Tags         LLM
+// @Accept       json
+// @Produce      text/event-stream
+// @Param        body  body  QueryRequest  true  "Query request"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Failure      503  {object}  map[string]interface{}
+// @Router       /api/llm/query/stream [post]
 // POST /api/llm/query/stream
 func (h *LLMHandler) StreamQuery(c *gin.Context) {
 	if !h.llm.Enabled() {
@@ -171,6 +214,17 @@ type AnalyzeRequest struct {
 }
 
 // Analyze provides analysis of feed data
+// @Summary      Analyze feed data
+// @Description  Provides AI analysis of feed data
+// @Tags         LLM
+// @Accept       json
+// @Produce      json
+// @Param        body  body  AnalyzeRequest  true  "Analysis request"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Failure      503  {object}  map[string]interface{}
+// @Router       /api/llm/analyze [post]
 // POST /api/llm/analyze
 func (h *LLMHandler) Analyze(c *gin.Context) {
 	if !h.llm.Enabled() {

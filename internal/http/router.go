@@ -7,8 +7,6 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
 
 	"github.com/turboline-ai/turbostream/internal/config"
 	"github.com/turboline-ai/turbostream/internal/http/handlers"
@@ -17,12 +15,13 @@ import (
 )
 
 type RouterDeps struct {
-	Config      config.Config
-	AuthService *services.AuthService
-	Marketplace *services.MarketplaceService
-	Settings    *services.SettingsService
-	LLM         *services.LLMService
-	Sockets     *socket.Manager
+	Config        config.Config
+	AuthService   *services.AuthService
+	APIKeyService *services.APIKeyService
+	Marketplace   *services.MarketplaceService
+	Settings      *services.SettingsService
+	LLM           *services.LLMService
+	Sockets       *socket.Manager
 }
 
 // BuildEngine wires up the HTTP and Socket.IO server.
@@ -45,8 +44,14 @@ func BuildEngine(deps RouterDeps) *gin.Engine {
 		MaxAge:           12 * time.Hour,
 	}))
 
-	// Swagger documentation
-	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	// API Documentation - Scalar
+	router.GET("/docs", ServeScalar)
+	router.GET("/", func(c *gin.Context) {
+		c.Redirect(302, "/docs")
+	})
+
+	// Serve OpenAPI spec for Scalar
+	router.StaticFile("/swagger/doc.json", "./docs/swagger.json")
 
 	handlers.HealthHandler(router)
 
@@ -57,6 +62,12 @@ func BuildEngine(deps RouterDeps) *gin.Engine {
 	protectedAuth := router.Group("/api/auth", AuthMiddleware(deps.AuthService))
 	authHandler.RegisterProtected(protectedAuth)
 	protectedAuth.GET("/token-usage", authHandler.GetTokenUsage)
+
+	// API Key routes
+	if deps.APIKeyService != nil {
+		apiKeyHandler := handlers.NewAPIKeyHandler(deps.APIKeyService)
+		apiKeyHandler.RegisterRoutes(protectedAuth)
+	}
 
 	// Marketplace routes
 	marketplaceHandler := handlers.NewMarketplaceHandler(deps.Marketplace, deps.Sockets)

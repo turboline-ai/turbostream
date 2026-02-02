@@ -45,6 +45,15 @@ func (h *AuthHandler) RegisterProtected(r *gin.RouterGroup) {
 }
 
 // register handles user registration and returns JWT token
+// @Summary      Register new user
+// @Description  Creates a new user account with email and password
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Param        body  body  object{email=string,password=string,name=string}  true  "User details"
+// @Success      201  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Router       /api/auth/register [post]
 func (h *AuthHandler) register(c *gin.Context) {
 	var body struct {
 		Email    string `json:"email"`
@@ -67,6 +76,15 @@ func (h *AuthHandler) register(c *gin.Context) {
 }
 
 // login authenticates user with email/password and optional 2FA
+// @Summary      User login
+// @Description  Authenticates user with email, password, and optional 2FA token
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Param        body  body  object{email=string,password=string,totpToken=string}  true  "Login credentials"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]interface{}
+// @Router       /api/auth/login [post]
 func (h *AuthHandler) login(c *gin.Context) {
 	var body struct {
 		Email     string `json:"email"`
@@ -89,6 +107,15 @@ func (h *AuthHandler) login(c *gin.Context) {
 }
 
 // me retrieves the authenticated user's profile information
+// @Summary      Get current user
+// @Description  Returns the authenticated user's profile information
+// @Tags         Authentication
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]interface{}
+// @Failure      404  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/auth/me [get]
 func (h *AuthHandler) me(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	ctx, cancel := contextWithTimeout(c)
@@ -115,11 +142,28 @@ func (h *AuthHandler) GetTokenUsage(c *gin.Context) {
 }
 
 // logout handles user logout (JWT is stateless, so this is primarily for client-side cleanup)
+// @Summary      User logout
+// @Description  Logs out the current user (client-side JWT cleanup)
+// @Tags         Authentication
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/auth/logout [post]
 func (h *AuthHandler) logout(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Logout successful"})
 }
 
 // changePassword updates the user's password after verifying current password
+// @Summary      Change password
+// @Description  Updates the user's password after verifying current password
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Param        body  body  object{currentPassword=string,newPassword=string}  true  "Password change request"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/auth/change-password [post]
 func (h *AuthHandler) changePassword(c *gin.Context) {
 	var body struct {
 		CurrentPassword string `json:"currentPassword"`
@@ -140,6 +184,14 @@ func (h *AuthHandler) changePassword(c *gin.Context) {
 }
 
 // twoFactorSetup generates TOTP secret and QR code for 2FA enrollment
+// @Summary      Setup 2FA
+// @Description  Generates TOTP secret and QR code for 2FA enrollment
+// @Tags         Authentication
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/auth/2fa/setup [post]
 func (h *AuthHandler) twoFactorSetup(c *gin.Context) {
 	email := c.GetString("userEmail")
 	secret, qr, manual, err := h.Service.TwoFactorSetup(email)
@@ -151,6 +203,16 @@ func (h *AuthHandler) twoFactorSetup(c *gin.Context) {
 }
 
 // enableTwoFactor activates 2FA after TOTP token verification and generates backup codes
+// @Summary      Enable 2FA
+// @Description  Activates 2FA after TOTP token verification and generates backup codes
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Param        body  body  object{secret=string,token=string}  true  "2FA activation request"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/auth/2fa/enable [post]
 func (h *AuthHandler) enableTwoFactor(c *gin.Context) {
 	var body struct {
 		Secret string `json:"secret"`
@@ -172,6 +234,14 @@ func (h *AuthHandler) enableTwoFactor(c *gin.Context) {
 }
 
 // disableTwoFactor removes 2FA from the user's account
+// @Summary      Disable 2FA
+// @Description  Removes 2FA from the user's account
+// @Tags         Authentication
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/auth/2fa/disable [post]
 func (h *AuthHandler) disableTwoFactor(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	ctx, cancel := contextWithTimeout(c)
@@ -184,6 +254,14 @@ func (h *AuthHandler) disableTwoFactor(c *gin.Context) {
 }
 
 // backupCodeStatus returns the count of unused backup codes for the user
+// @Summary      Get backup codes status
+// @Description  Returns the count of unused backup codes
+// @Tags         Authentication
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/auth/2fa/backup-codes/status [get]
 func (h *AuthHandler) backupCodeStatus(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	ctx, cancel := contextWithTimeout(c)
@@ -197,6 +275,16 @@ func (h *AuthHandler) backupCodeStatus(c *gin.Context) {
 }
 
 // regenerateBackupCodes creates a new set of backup codes after TOTP verification
+// @Summary      Regenerate backup codes
+// @Description  Creates a new set of backup codes after TOTP verification
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Param        body  body  object{token=string}  true  "TOTP token"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/auth/2fa/backup-codes/regenerate [post]
 func (h *AuthHandler) regenerateBackupCodes(c *gin.Context) {
 	var body struct {
 		Token string `json:"token"`
@@ -217,6 +305,14 @@ func (h *AuthHandler) regenerateBackupCodes(c *gin.Context) {
 }
 
 // sessions retrieves all active sessions for the authenticated user
+// @Summary      List user sessions
+// @Description  Retrieves all active sessions for the authenticated user
+// @Tags         Authentication
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/auth/sessions [get]
 func (h *AuthHandler) sessions(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	ctx, cancel := contextWithTimeout(c)
@@ -230,6 +326,16 @@ func (h *AuthHandler) sessions(c *gin.Context) {
 }
 
 // terminateSession deactivates a specific session by ID
+// @Summary      Terminate session
+// @Description  Deactivates a specific session by ID
+// @Tags         Authentication
+// @Produce      json
+// @Param        id   path  string  true  "Session ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/auth/sessions/{id} [delete]
 func (h *AuthHandler) terminateSession(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	sid, err := primitive.ObjectIDFromHex(c.Param("id"))
@@ -247,6 +353,14 @@ func (h *AuthHandler) terminateSession(c *gin.Context) {
 }
 
 // terminateOthers deactivates all other sessions except the current one
+// @Summary      Terminate other sessions
+// @Description  Deactivates all other sessions except the current one
+// @Tags         Authentication
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/auth/sessions/terminate-others [post]
 func (h *AuthHandler) terminateOthers(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	ctx, cancel := contextWithTimeout(c)
@@ -260,6 +374,15 @@ func (h *AuthHandler) terminateOthers(c *gin.Context) {
 }
 
 // loginActivity retrieves recent login attempts for the user with optional limit
+// @Summary      Get login activity
+// @Description  Retrieves recent login attempts with optional limit
+// @Tags         Authentication
+// @Produce      json
+// @Param        limit  query  integer  false  "Maximum number of records"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/auth/login-activity [get]
 func (h *AuthHandler) loginActivity(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
 	limit := int64(10)

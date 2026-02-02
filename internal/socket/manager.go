@@ -28,11 +28,13 @@ type WSMessage struct {
 
 // Client represents a connected WebSocket client with context and write synchronization
 type Client struct {
-	conn    *coderws.Conn
-	ctx     context.Context
-	cancel  context.CancelFunc
-	writeMu sync.Mutex
-	userID  string
+	conn     *coderws.Conn
+	ctx      context.Context
+	cancel   context.CancelFunc
+	writeMu  sync.Mutex
+	userID   string
+	authType string   // "jwt" or "apikey"
+	scopes   []string // For API key auth
 }
 
 // send writes a message to the client's WebSocket connection with thread safety
@@ -135,6 +137,7 @@ type feedConnection struct {
 type Manager struct {
 	rooms            *RoomManager
 	auth             *services.AuthService
+	apiKeyService    *services.APIKeyService
 	azure            *services.AzureOpenAI
 	llm              *services.LLMService
 	marketplace      *services.MarketplaceService
@@ -147,10 +150,11 @@ type Manager struct {
 	allowedOrigins   []string
 }
 
-func NewManager(auth *services.AuthService, azure *services.AzureOpenAI, marketplace *services.MarketplaceService, allowedOrigins []string) *Manager {
+func NewManager(auth *services.AuthService, apiKeyService *services.APIKeyService, azure *services.AzureOpenAI, marketplace *services.MarketplaceService, allowedOrigins []string) *Manager {
 	return &Manager{
 		rooms:           NewRoomManager(),
 		auth:            auth,
+		apiKeyService:   apiKeyService,
 		azure:           azure,
 		marketplace:     marketplace,
 		feedConns:       make(map[string]*feedConnection),
@@ -238,10 +242,27 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 	switch msg.Type {
 	case "authenticate":
 		var payload struct {
-			Token string `json:"token"`
+			Token  string `json:"token"`
+			APIKey string `json:"apiKey"`
 		}
-		if err := json.Unmarshal(msg.Payload, &payload); err != nil || payload.Token == "" {
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 			client.send(makeMessage("auth_error", map[string]string{"error": "invalid payload"}))
+			return
+		}
+
+		// Try API key first
+		if payload.APIKey != "" {
+			if err := m.authenticateWithAPIKey(client, payload.APIKey); err != nil {
+				client.send(makeMessage("auth_error", map[string]string{"error": err.Error()}))
+				return
+			}
+			client.send(makeMessage("authenticated", map[string]string{"userId": client.userID, "authType": "apikey"}))
+			return
+		}
+
+		// Fall back to JWT
+		if payload.Token == "" {
+			client.send(makeMessage("auth_error", map[string]string{"error": "token or apiKey required"}))
 			return
 		}
 		// Verify token using auth service
@@ -252,7 +273,9 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 		}
 		if userID, ok := claims["userId"].(string); ok {
 			client.userID = userID
-			client.send(makeMessage("authenticated", map[string]string{"userId": userID}))
+			client.authType = "jwt"
+			client.scopes = []string{"websocket:*"}
+			client.send(makeMessage("authenticated", map[string]string{"userId": userID, "authType": "jwt"}))
 		} else {
 			client.send(makeMessage("auth_error", map[string]string{"error": "invalid token claims"}))
 		}
@@ -278,6 +301,10 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 
 	case "subscribe-feed":
 		// Subscribe to raw feed data only
+		if !hasScope(client, "websocket:subscribe") {
+			client.send(makeMessage("subscription-error", map[string]string{"error": "insufficient permissions"}))
+			return
+		}
 		var payload struct {
 			UserID string `json:"userId"`
 			FeedID string `json:"feedId"`
@@ -295,6 +322,10 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 
 	case "subscribe-llm":
 		// Subscribe to LLM output only
+		if !hasScope(client, "websocket:llm") {
+			client.send(makeMessage("subscription-error", map[string]string{"error": "insufficient permissions"}))
+			return
+		}
 		var payload struct {
 			UserID string `json:"userId"`
 			FeedID string `json:"feedId"`
@@ -310,6 +341,10 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 
 	case "subscribe-all":
 		// Subscribe to both feed data and LLM output
+		if !hasScope(client, "websocket:subscribe") {
+			client.send(makeMessage("subscription-error", map[string]string{"error": "insufficient permissions"}))
+			return
+		}
 		var payload struct {
 			UserID string `json:"userId"`
 			FeedID string `json:"feedId"`
@@ -373,6 +408,10 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 
 	case "llm-query":
 		// LangChain-based LLM query using feed context
+		if !hasScope(client, "websocket:llm") {
+			client.send(makeMessage("llm-error", map[string]string{"error": "insufficient permissions"}))
+			return
+		}
 		var payload struct {
 			FeedID       string `json:"feedId"`
 			Question     string `json:"question"`
@@ -388,6 +427,10 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 
 	case "llm-query-stream":
 		// Streaming LLM query
+		if !hasScope(client, "websocket:llm") {
+			client.send(makeMessage("llm-error", map[string]string{"error": "insufficient permissions"}))
+			return
+		}
 		var payload struct {
 			FeedID       string `json:"feedId"`
 			Question     string `json:"question"`
@@ -403,9 +446,13 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 
 	case "subscribe-topic":
 		// Subscribe to specific topic intelligence
+		if !hasScope(client, "websocket:topic") {
+			client.send(makeMessage("subscription-error", map[string]string{"error": "insufficient permissions"}))
+			return
+		}
 		var payload struct {
 			UserID string `json:"userId"`
-			FeedID string `json:"feedId"`
+			FeedID string `json:"feedid"`
 			Topic  string `json:"topic"`
 		}
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
@@ -562,6 +609,7 @@ func (m *Manager) startTopicScheduler(feed models.WebSocketFeed) error {
 	scheduler := services.NewTopicLLMScheduler(
 		feedID,
 		feed.Name,
+		&feed,
 		m.llm,
 		m.broadcastLLMIntelligence,
 	)
@@ -979,4 +1027,39 @@ func (m *Manager) handleLLMStreamQuery(client *Client, feedID, question, provide
 			"requestId": requestID,
 		}))
 	}
+}
+
+// authenticateWithAPIKey validates an API key and sets client authentication
+func (m *Manager) authenticateWithAPIKey(client *Client, rawKey string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	apiKey, err := m.apiKeyService.ValidateKey(ctx, rawKey)
+	if err != nil {
+		return errors.New("invalid API key")
+	}
+
+	// Update last used (async)
+	go func() {
+		ctx := context.Background()
+		m.apiKeyService.UpdateLastUsed(ctx, apiKey.ID)
+	}()
+
+	client.userID = apiKey.UserID.Hex()
+	client.authType = "apikey"
+	client.scopes = apiKey.Scopes
+	return nil
+}
+
+// hasScope checks if a client has the required scope for an operation
+func hasScope(client *Client, requiredScope string) bool {
+	if client.authType == "jwt" {
+		return true // JWT has all permissions
+	}
+	for _, scope := range client.scopes {
+		if scope == "websocket:*" || scope == requiredScope {
+			return true
+		}
+	}
+	return false
 }

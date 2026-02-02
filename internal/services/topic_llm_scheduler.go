@@ -5,6 +5,8 @@ import (
 	"log"
 	"sync"
 	"time"
+
+	"github.com/turboline-ai/turbostream/internal/models"
 )
 
 // topicLoop represents a running LLM query loop for a specific topic
@@ -18,6 +20,7 @@ type topicLoop struct {
 type TopicLLMScheduler struct {
 	feedID        string
 	feedName      string
+	feed          *models.WebSocketFeed
 	topics        map[string]*topicLoop
 	llmService    *LLMService
 	queryInterval time.Duration
@@ -29,12 +32,14 @@ type TopicLLMScheduler struct {
 func NewTopicLLMScheduler(
 	feedID string,
 	feedName string,
+	feed *models.WebSocketFeed,
 	llmService *LLMService,
 	broadcastFunc func(feedID, topic, analysis, provider string),
 ) *TopicLLMScheduler {
 	return &TopicLLMScheduler{
 		feedID:        feedID,
 		feedName:      feedName,
+		feed:          feed,
 		topics:        make(map[string]*topicLoop),
 		llmService:    llmService,
 		queryInterval: 10 * time.Second, // Default: query every 10 seconds
@@ -143,13 +148,35 @@ func (s *TopicLLMScheduler) queryAndBroadcast(topic string) {
 
 	log.Printf("🤖 Querying LLM for %s (%d entries)", contextKey, len(ctx.Entries))
 
+	// Get topic-specific prompts, fallback to defaults
+	systemPrompt := ""
+	question := "Provide a brief analysis of the recent activity and any notable patterns."
+
+	if s.feed != nil && s.feed.TopicPrompts != nil {
+		if topicCfg, ok := s.feed.TopicPrompts[topic]; ok {
+			if topicCfg.SystemPrompt != "" {
+				systemPrompt = topicCfg.SystemPrompt
+			}
+			if topicCfg.Question != "" {
+				question = topicCfg.Question
+			}
+			log.Printf("📝 Using topic-specific prompts for %s", topic)
+		}
+	}
+
+	// Fallback to feed-level defaults if no topic-specific config
+	if systemPrompt == "" && s.feed != nil && s.feed.SystemPrompt != "" {
+		systemPrompt = s.feed.SystemPrompt
+	}
+
 	// Query LLM
 	queryCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	resp, err := s.llmService.Query(queryCtx, QueryRequest{
-		FeedID:   contextKey,
-		Question: "Provide a brief analysis of the recent activity and any notable patterns.",
+		FeedID:       contextKey,
+		Question:     question,
+		SystemPrompt: systemPrompt,
 	})
 
 	if err != nil {
