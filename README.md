@@ -10,7 +10,7 @@ High-performance Go backend providing REST APIs and WebSocket streaming for moni
 
 ## Quick Start Video
 
-> 📹 **Coming Soon:** Watch our quick start guide on YouTube
+> **Coming Soon:** Watch our quick start guide on YouTube
 
 ---
 
@@ -52,7 +52,7 @@ ANTHROPIC_API_KEY=sk-ant-your-key
 go run ./cmd/server
 ```
 
-Server starts at `http://localhost:7210` ✨
+Server starts at `http://localhost:7210`
 
 ---
 
@@ -83,7 +83,7 @@ ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
 
 ### Railway (Recommended)
 
-> 📹 **Coming Soon:** Watch our Railway deployment guide
+> **Coming Soon:** Watch our Railway deployment guide
 
 1. **Push your code** to GitHub
 2. **Connect to Railway**: [railway.app](https://railway.com?referralCode=imTbk0)
@@ -108,13 +108,31 @@ docker run -p 7210:7210 --env-file .env.local turbostream
 
 ## API Documentation
 
-📚 **Complete API Reference**: [turboline.ai/docs/api](https://turboline.ai/docs/api)
+### Interactive Swagger UI
+
+**Try it now**: When your server is running, visit:
+
+```
+http://localhost:7210/swagger/index.html
+```
+
+The Swagger UI lets you:
+- Explore all API endpoints interactively
+- Test authentication, marketplace, LLM, and settings APIs
+- View request/response schemas
+- Execute API calls directly from your browser
+
+**Note:** WebSocket streaming (`/ws`) cannot be fully tested in Swagger. For WebSocket testing, use:
+- CLI tools like `wscat`
+- Postman with WebSocket support
+- Or see our [WebSocket guide](https://turboline.ai/docs/websocket)
 
 ### Quick Reference
 
 **Authentication:**
 - `POST /api/auth/register` - Register new user
 - `POST /api/auth/login` - Login and get JWT token
+- `GET /api/auth/me` - Get current user (requires auth)
 
 **LLM:**
 - `POST /api/llm/query` - Query LLM with feed data
@@ -122,13 +140,15 @@ docker run -p 7210:7210 --env-file .env.local turbostream
 - `GET /api/llm/providers` - List available LLM providers
 
 **Marketplace:**
-- `GET /api/marketplace` - List all feeds
-- `POST /api/marketplace` - Create new feed (requires auth)
+- `GET /api/marketplace/feeds` - List all feeds
+- `POST /api/marketplace/feeds` - Create new feed (requires auth)
+- `POST /api/marketplace/subscribe/:feedId` - Subscribe to feed
+- `GET /api/marketplace/subscriptions` - Get user subscriptions
 
 **WebSocket:**
 - `ws://localhost:7210/ws` - Real-time streaming
 
-For detailed API docs, examples, and WebSocket protocol, visit [turboline.ai/docs/api](https://turboline.ai/docs/api)
+**Complete Documentation**: [turboline.ai/docs/api](https://turboline.ai/docs/api)
 
 ---
 
@@ -242,12 +262,12 @@ TOKEN_QUOTA_PER_MONTH=1000000       # Token usage quota
 
 ## Resources
 
-- 📚 **API Documentation**: [turboline.ai/docs/api](https://turboline.ai/docs/api)
-- 🚀 **Deployment Guide**: [turboline.ai/docs/deployment](https://turboline.ai/docs/deployment)
-- 🔧 **Configuration Guide**: [turboline.ai/docs/configuration](https://turboline.ai/docs/configuration)
-- 💬 **Community Discussions**: [GitHub Discussions](https://github.com/turboline-ai/turbostream/discussions)
-- 🐛 **Report Issues**: [GitHub Issues](https://github.com/turboline-ai/turbostream/issues)
-- 📺 **Video Tutorials**: [YouTube](https://youtube.com/@turboline-ai)
+- **API Documentation**: [turboline.ai/docs/api](https://turboline.ai/docs/api)
+- **Deployment Guide**: [turboline.ai/docs/deployment](https://turboline.ai/docs/deployment)
+- **Configuration Guide**: [turboline.ai/docs/configuration](https://turboline.ai/docs/configuration)
+- **Community Discussions**: [GitHub Discussions](https://github.com/turboline-ai/turbostream/discussions)
+- **Report Issues**: [GitHub Issues](https://github.com/turboline-ai/turbostream/issues)
+- **Video Tutorials**: [YouTube](https://youtube.com/@turboline-ai)
 
 ---
 

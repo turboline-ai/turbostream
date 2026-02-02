@@ -1,11 +1,14 @@
 package http
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 
 	"github.com/turboline-ai/turbostream/internal/config"
 	"github.com/turboline-ai/turbostream/internal/http/handlers"
@@ -27,13 +30,23 @@ func BuildEngine(deps RouterDeps) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
+
+	// Build server's own origin for Swagger UI
+	// Include both the configured host and localhost for flexibility
+	serverOrigin := fmt.Sprintf("http://%s:%d", deps.Config.Host, deps.Config.Port)
+	localhostOrigin := fmt.Sprintf("http://localhost:%d", deps.Config.Port)
+	allowedOrigins := []string{deps.Config.CORSOrigin, serverOrigin, localhostOrigin}
+
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{deps.Config.CORSOrigin},
+		AllowOrigins:     allowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
+
+	// Swagger documentation
+	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	handlers.HealthHandler(router)
 

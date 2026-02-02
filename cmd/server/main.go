@@ -15,7 +15,44 @@ import (
 	transport "github.com/turboline-ai/turbostream/internal/http"
 	"github.com/turboline-ai/turbostream/internal/services"
 	"github.com/turboline-ai/turbostream/internal/socket"
+
+	_ "github.com/turboline-ai/turbostream/docs" // Import generated docs
 )
+
+// @title           TurboStream API
+// @version         1.0
+// @description     TurboStream API for real-time data streaming and feed management with AI-powered analysis
+// @termsOfService  https://turboline.ai/terms
+
+// @contact.name   API Support
+// @contact.url    https://turboline.ai/docs/api
+// @contact.email  dev@turboline.ai
+
+// @license.name  MPL-2.0
+// @license.url   https://github.com/turboline-ai/turbostream?tab=MPL-2.0-1-ov-file
+
+// @host      localhost:7210
+// @BasePath  /
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and JWT token.
+
+// @tag.name Health
+// @tag.description Health check endpoints
+
+// @tag.name Authentication
+// @tag.description User authentication and authorization
+
+// @tag.name Marketplace
+// @tag.description Feed marketplace and subscription management
+
+// @tag.name Settings
+// @tag.description Application settings and categories
+
+// @tag.name LLM
+// @tag.description AI/LLM integration for feed analysis
 
 func main() {
 	cfg := config.Load()
@@ -67,6 +104,7 @@ func main() {
 
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	log.Printf("🚀 Go backend listening on %s (CORS: %s)", addr, cfg.CORSOrigin)
+	log.Printf("📚 Swagger UI available at http://%s/swagger/index.html", addr)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/ws" {
 			socketManager.Handle(w, r)
