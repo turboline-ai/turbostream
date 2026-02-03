@@ -53,8 +53,11 @@ tmp/
 
 # Test coverage
 coverage/
+coverage.out
+coverage.html
 *.cover
 *.coverage
+*.coverprofile
 
 # Debug
 debug/
@@ -68,7 +71,15 @@ debug/
 # Experiments
 experiments/
 
-# Documentation (exclude all .md files except README.md)
+# Documentation (exclude all .md files except README.md files)
 *.md
 !README.md
+!docs/README.md
+
+# Analysis and report files
+*_report.md
+*_analysis.md
+*_summary.md
+SECURITY_*.md
+AUTH_*.md
 

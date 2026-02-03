@@ -1042,7 +1042,9 @@ func (m *Manager) authenticateWithAPIKey(client *Client, rawKey string) error {
 	// Update last used (async)
 	go func() {
 		ctx := context.Background()
-		m.apiKeyService.UpdateLastUsed(ctx, apiKey.ID)
+		if err := m.apiKeyService.UpdateLastUsed(ctx, apiKey.ID); err != nil {
+			log.Printf("Failed to update API key last used timestamp: %v", err)
+		}
 	}()
 
 	client.userID = apiKey.UserID.Hex()

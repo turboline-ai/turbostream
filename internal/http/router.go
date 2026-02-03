@@ -30,6 +30,12 @@ func BuildEngine(deps RouterDeps) *gin.Engine {
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
 
+	// Security Headers - Add first to apply to all routes
+	router.Use(SecurityHeadersMiddleware())
+
+	// Global Rate Limiting - Lenient for general API usage
+	router.Use(LenientRateLimitMiddleware())
+
 	// Build server's own origin for Swagger UI
 	// Include both the configured host and localhost for flexibility
 	serverOrigin := fmt.Sprintf("http://%s:%d", deps.Config.Host, deps.Config.Port)
@@ -57,9 +63,11 @@ func BuildEngine(deps RouterDeps) *gin.Engine {
 
 	// Auth routes (public + protected)
 	authHandler := handlers.NewAuthHandler(deps.AuthService)
-	publicAuth := router.Group("/api/auth")
+	// Public auth routes with strict rate limiting to prevent brute force
+	publicAuth := router.Group("/api/auth", StrictRateLimitMiddleware())
 	authHandler.RegisterPublic(publicAuth)
-	protectedAuth := router.Group("/api/auth", AuthMiddleware(deps.AuthService))
+	// Protected auth routes with moderate rate limiting
+	protectedAuth := router.Group("/api/auth", AuthMiddleware(deps.AuthService), ModerateRateLimitMiddleware())
 	authHandler.RegisterProtected(protectedAuth)
 	protectedAuth.GET("/token-usage", authHandler.GetTokenUsage)
 

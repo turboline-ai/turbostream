@@ -55,7 +55,8 @@ func TestServerInitialization(t *testing.T) {
 			require.NotNil(t, llmService)
 		}
 
-		socketManager := socket.NewManager(authService, azureService, marketplaceService, []string{cfg.CORSOrigin})
+		apiKeyService := services.NewAPIKeyService(mongoClient.Db)
+		socketManager := socket.NewManager(authService, apiKeyService, azureService, marketplaceService, []string{cfg.CORSOrigin})
 		require.NotNil(t, socketManager)
 
 		if llmService != nil {
@@ -253,10 +254,11 @@ func TestSocketManagerInitialization(t *testing.T) {
 		defer mongoClient.Disconnect(ctx)
 
 		authService := services.NewAuthService(cfg, mongoClient.Raw, mongoClient.Db)
+		apiKeyService := services.NewAPIKeyService(mongoClient.Db)
 		marketplaceService := services.NewMarketplaceService(mongoClient.Db)
 		azureService := services.NewAzureOpenAI(cfg)
 
-		socketManager := socket.NewManager(authService, azureService, marketplaceService, []string{cfg.CORSOrigin})
+		socketManager := socket.NewManager(authService, apiKeyService, azureService, marketplaceService, []string{cfg.CORSOrigin})
 
 		assert.NotNil(t, socketManager)
 	})
@@ -272,11 +274,12 @@ func TestSocketManagerInitialization(t *testing.T) {
 		defer mongoClient.Disconnect(ctx)
 
 		authService := services.NewAuthService(cfg, mongoClient.Raw, mongoClient.Db)
+		apiKeyService := services.NewAPIKeyService(mongoClient.Db)
 		marketplaceService := services.NewMarketplaceService(mongoClient.Db)
 		azureService := services.NewAzureOpenAI(cfg)
 		llmService, _ := services.NewLLMService(cfg)
 
-		socketManager := socket.NewManager(authService, azureService, marketplaceService, []string{cfg.CORSOrigin})
+		socketManager := socket.NewManager(authService, apiKeyService, azureService, marketplaceService, []string{cfg.CORSOrigin})
 		socketManager.SetLLMService(llmService)
 
 		assert.NotNil(t, socketManager)
@@ -300,11 +303,12 @@ func TestRouterInitialization(t *testing.T) {
 		defer mongoClient.Disconnect(ctx)
 
 		authService := services.NewAuthService(cfg, mongoClient.Raw, mongoClient.Db)
+		apiKeyService := services.NewAPIKeyService(mongoClient.Db)
 		marketplaceService := services.NewMarketplaceService(mongoClient.Db)
 		settingsService := services.NewSettingsService(mongoClient.Db)
 		azureService := services.NewAzureOpenAI(cfg)
 		llmService, _ := services.NewLLMService(cfg)
-		socketManager := socket.NewManager(authService, azureService, marketplaceService, []string{cfg.CORSOrigin})
+		socketManager := socket.NewManager(authService, apiKeyService, azureService, marketplaceService, []string{cfg.CORSOrigin})
 
 		router := transport.BuildEngine(transport.RouterDeps{
 			Config:      cfg,
@@ -330,10 +334,11 @@ func TestRouterInitialization(t *testing.T) {
 		defer mongoClient.Disconnect(ctx)
 
 		authService := services.NewAuthService(cfg, mongoClient.Raw, mongoClient.Db)
+		apiKeyService := services.NewAPIKeyService(mongoClient.Db)
 		marketplaceService := services.NewMarketplaceService(mongoClient.Db)
 		settingsService := services.NewSettingsService(mongoClient.Db)
 		llmService, _ := services.NewLLMService(cfg)
-		socketManager := socket.NewManager(authService, nil, marketplaceService, []string{cfg.CORSOrigin})
+		socketManager := socket.NewManager(authService, apiKeyService, nil, marketplaceService, []string{cfg.CORSOrigin})
 
 		router := transport.BuildEngine(transport.RouterDeps{
 			Config:      cfg,
@@ -444,7 +449,8 @@ func TestStartupSequence(t *testing.T) {
 		err = settingsService.EnsureDefaultCategories(ctx)
 		require.NoError(t, err, "step 9: seed default categories")
 
-		socketManager := socket.NewManager(authService, azureService, marketplaceService, []string{cfg.CORSOrigin})
+		apiKeyService := services.NewAPIKeyService(mongoClient.Db)
+		socketManager := socket.NewManager(authService, apiKeyService, azureService, marketplaceService, []string{cfg.CORSOrigin})
 		require.NotNil(t, socketManager, "step 10: initialize socket manager")
 
 		if llmService != nil {

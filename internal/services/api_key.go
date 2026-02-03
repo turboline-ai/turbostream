@@ -278,7 +278,9 @@ func (s *APIKeyService) generateSecureKey() (string, error) {
 	if len(randomStr) < randomLength {
 		// Pad with additional random characters if needed
 		padding := make([]byte, randomLength-len(randomStr))
-		rand.Read(padding)
+		if _, err := rand.Read(padding); err != nil {
+			return "", fmt.Errorf("failed to generate random padding: %w", err)
+		}
 		randomStr = randomStr + s.encodeBase62(padding)
 	}
 	randomStr = randomStr[:randomLength]
