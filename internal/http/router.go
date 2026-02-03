@@ -36,7 +36,7 @@ func BuildEngine(deps RouterDeps) *gin.Engine {
 	// Global Rate Limiting - Lenient for general API usage
 	router.Use(LenientRateLimitMiddleware())
 
-	// Build server's own origin for Swagger UI
+	// Build server's own origin for API documentation
 	// Include both the configured host and localhost for flexibility
 	serverOrigin := fmt.Sprintf("http://%s:%d", deps.Config.Host, deps.Config.Port)
 	localhostOrigin := fmt.Sprintf("http://localhost:%d", deps.Config.Port)
@@ -57,7 +57,7 @@ func BuildEngine(deps RouterDeps) *gin.Engine {
 	})
 
 	// Serve OpenAPI spec for Scalar
-	router.StaticFile("/swagger/doc.json", "./docs/swagger.json")
+	router.StaticFile("/openapi/spec.json", "./docs/openapi.json")
 
 	handlers.HealthHandler(router)
 

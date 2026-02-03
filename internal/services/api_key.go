@@ -262,7 +262,11 @@ func (s *APIKeyService) EnsureIndexes(ctx context.Context) error {
 	}
 
 	_, err := s.collection().Indexes().CreateMany(ctx, indexes)
-	return err
+	// Ignore IndexKeySpecsConflict errors (index already exists with same keys)
+	if err != nil && !mongo.IsDuplicateKeyError(err) && !strings.Contains(err.Error(), "IndexKeySpecsConflict") {
+		return err
+	}
+	return nil
 }
 
 // generateSecureKey generates a secure API key with format: ts_live_<random>_<checksum>

@@ -1,25 +1,26 @@
-# Swagger Documentation
+# API Documentation
 
-This directory contains the automatically generated Swagger/OpenAPI documentation for the TurboStream API.
+This directory contains the automatically generated OpenAPI documentation for the TurboStream API.
 
-## Accessing Swagger UI
+## Accessing API Documentation
 
 When your server is running, visit:
 ```
-http://localhost:7210/swagger/index.html
+http://localhost:7210/docs
 ```
+
+The documentation is rendered using [Scalar](https://scalar.com), a modern interactive API documentation UI.
 
 ## Files
 
-- `docs.go` - Generated Go code that registers the Swagger spec
-- `swagger.json` - OpenAPI 2.0 specification in JSON format
-- `swagger.yaml` - OpenAPI 2.0 specification in YAML format (optional)
+- `docs.go` - Generated Go code that registers the OpenAPI spec
+- `openapi.json` - OpenAPI 2.0 specification in JSON format
 
 ## Extending the Documentation
 
 ### Adding Annotations to Handlers
 
-To document your API endpoints, add Swagger annotations to your handler functions:
+To document your API endpoints, add OpenAPI annotations to your handler functions:
 
 ```go
 // GetFeed retrieves a feed by ID
@@ -64,13 +65,18 @@ For endpoints requiring authentication:
 If you have the `swag` CLI tool installed:
 
 ```bash
-swag init -g cmd/server/main.go --output docs
+swag init -g cmd/server/main.go --output docs --outputTypes json
+```
+
+After regenerating, rename the output file:
+```bash
+mv docs/swagger.json docs/openapi.json
 ```
 
 If you encounter issues with the swag binary, you can manually update the files in this directory following the OpenAPI 2.0 specification.
 
 ## Resources
 
-- [Swagger/OpenAPI 2.0 Specification](https://swagger.io/specification/v2/)
+- [OpenAPI 2.0 Specification](https://swagger.io/specification/v2/)
+- [Scalar Documentation](https://github.com/scalar/scalar)
 - [swaggo Documentation](https://github.com/swaggo/swag)
-- [gin-swagger Integration](https://github.com/swaggo/gin-swagger)

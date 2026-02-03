@@ -108,21 +108,21 @@ docker run -p 7210:7210 --env-file .env.local turbostream
 
 ## API Documentation
 
-### Interactive Swagger UI
+### Interactive API Documentation
 
 **Try it now**: When your server is running, visit:
 
 ```
-http://localhost:7210/swagger/index.html
+http://localhost:7210/docs
 ```
 
-The Swagger UI lets you:
+The API documentation (powered by [Scalar](https://scalar.com)) lets you:
 - Explore all API endpoints interactively
 - Test authentication, marketplace, LLM, and settings APIs
-- View request/response schemas
+- View request/response schemas with examples
 - Execute API calls directly from your browser
 
-**Note:** WebSocket streaming (`/ws`) cannot be fully tested in Swagger. For WebSocket testing, use:
+**Note:** WebSocket streaming (`/ws`) cannot be fully tested in the browser documentation. For WebSocket testing, use:
 - CLI tools like `wscat`
 - Postman with WebSocket support
 - Or see our [WebSocket guide](https://turboline.ai/docs/websocket)
