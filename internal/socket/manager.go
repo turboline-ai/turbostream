@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -221,21 +223,102 @@ func (m *Manager) runClient(client *Client) {
 }
 
 // extractTopic extracts the topic value from feed data using the TopicField
+// Supports:
+//   - Root-level arrays: "[3]" extracts element at index 3 from root array
+//   - Nested paths: "data.path" navigates object hierarchy
+//   - Array indexing: "field[0]", "field[-1]" for first/last element
+//   - Combined: "data.path[-1]" for nested array access
 func (m *Manager) extractTopic(feed models.WebSocketFeed, data interface{}) string {
 	if !feed.EnableTopicRouting || feed.TopicField == "" {
 		return ""
 	}
 
-	dataMap, ok := data.(map[string]interface{})
-	if !ok {
-		return ""
+	// Navigate nested path
+	parts := strings.Split(feed.TopicField, ".")
+	current := data
+
+	for i, part := range parts {
+		// Check for array indexing: field[index], field[-1], or just [index] for root arrays
+		if strings.Contains(part, "[") && strings.Contains(part, "]") {
+			fieldName := part[:strings.Index(part, "[")]
+			indexStr := part[strings.Index(part, "[")+1 : strings.Index(part, "]")]
+
+			// Get the field first (if fieldName is not empty)
+			// For root-level array access like "[3]", fieldName will be empty
+			if fieldName != "" {
+				currentMap, ok := current.(map[string]interface{})
+				if !ok {
+					log.Printf("⚠️ extractTopic: expected map at field '%s', got %T", fieldName, current)
+					return ""
+				}
+				var exists bool
+				current, exists = currentMap[fieldName]
+				if !exists {
+					log.Printf("⚠️ extractTopic: field '%s' not found in data", fieldName)
+					return ""
+				}
+			}
+
+			// Now handle array indexing (works for both root arrays and nested arrays)
+			arr, ok := current.([]interface{})
+			if !ok {
+				log.Printf("⚠️ extractTopic: expected array at '%s', got %T", part, current)
+				return ""
+			}
+
+			if len(arr) == 0 {
+				log.Printf("⚠️ extractTopic: empty array at '%s'", part)
+				return ""
+			}
+
+			var index int
+			if indexStr == "-1" {
+				// Last element
+				index = len(arr) - 1
+			} else {
+				// Parse index
+				var err error
+				index, err = strconv.Atoi(indexStr)
+				if err != nil {
+					log.Printf("⚠️ extractTopic: invalid array index '%s': %v", indexStr, err)
+					return ""
+				}
+			}
+
+			// Validate index bounds
+			if index < 0 || index >= len(arr) {
+				log.Printf("⚠️ extractTopic: index %d out of bounds for array of length %d", index, len(arr))
+				return ""
+			}
+
+			current = arr[index]
+
+			// If this is the last part, return the value
+			if i == len(parts)-1 {
+				topic := fmt.Sprintf("%v", current)
+				log.Printf("✓ extractTopic: extracted topic '%s' from field '%s'", topic, feed.TopicField)
+				return topic
+			}
+		} else {
+			// Regular field access
+			currentMap, ok := current.(map[string]interface{})
+			if !ok {
+				log.Printf("⚠️ extractTopic: expected map at part '%s', got %T", part, current)
+				return ""
+			}
+
+			next, exists := currentMap[part]
+			if !exists {
+				log.Printf("⚠️ extractTopic: field '%s' not found", part)
+				return ""
+			}
+			current = next
+		}
 	}
 
-	if topicVal, exists := dataMap[feed.TopicField]; exists {
-		return fmt.Sprintf("%v", topicVal)
-	}
-
-	return ""
+	topic := fmt.Sprintf("%v", current)
+	log.Printf("✓ extractTopic: extracted topic '%s' from field '%s'", topic, feed.TopicField)
+	return topic
 }
 
 func (m *Manager) handleMessage(client *Client, msg WSMessage) {
@@ -275,8 +358,10 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 			client.userID = userID
 			client.authType = "jwt"
 			client.scopes = []string{"websocket:*"}
+			log.Printf("✅ JWT authentication successful - userID: %s, authType: %s, scopes: %v", userID, client.authType, client.scopes)
 			client.send(makeMessage("authenticated", map[string]string{"userId": userID, "authType": "jwt"}))
 		} else {
+			log.Printf("❌ JWT authentication failed - invalid token claims")
 			client.send(makeMessage("auth_error", map[string]string{"error": "invalid token claims"}))
 		}
 
@@ -446,7 +531,9 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 
 	case "subscribe-topic":
 		// Subscribe to specific topic intelligence
+		log.Printf("🔍 subscribe-topic request - authType: %s, scopes: %v, userID: %s", client.authType, client.scopes, client.userID)
 		if !hasScope(client, "websocket:topic") {
+			log.Printf("❌ insufficient permissions for subscribe-topic - authType: %s, scopes: %v", client.authType, client.scopes)
 			client.send(makeMessage("subscription-error", map[string]string{"error": "insufficient permissions"}))
 			return
 		}

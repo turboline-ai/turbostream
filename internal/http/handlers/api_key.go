@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"time"
 
@@ -71,6 +72,8 @@ func (h *APIKeyHandler) createAPIKey(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "API key with this name already exists"})
 			return
 		}
+		// Log the actual error for debugging
+		log.Printf("❌ Failed to generate API key for user %s: %v", userID.Hex(), err)
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to generate API key"})
 		return
 	}

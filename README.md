@@ -122,10 +122,9 @@ The API documentation (powered by [Scalar](https://scalar.com)) lets you:
 - View request/response schemas with examples
 - Execute API calls directly from your browser
 
-**Note:** WebSocket streaming (`/ws`) cannot be fully tested in the browser documentation. For WebSocket testing, use:
-- CLI tools like `wscat`
-- Postman with WebSocket support
-- Or see our [WebSocket guide](https://turboline.ai/docs/websocket)
+> **ℹ️ Note:** If you're using an ad-blocker (e.g., Brave Shields, uBlock Origin), you may need to disable it for `localhost:7210` to test API calls in the browser.
+
+> **⚠️ WebSocket Limitation:** WebSocket streaming (`/ws`) cannot be fully tested in the browser documentation. For WebSocket testing, use CLI tools like `wscat` or Postman with WebSocket support.
 
 ### Quick Reference
 

@@ -11,6 +11,8 @@ http://localhost:7210/docs
 
 The documentation is rendered using [Scalar](https://scalar.com), a modern interactive API documentation UI.
 
+> **ℹ️ Note:** If you're using an ad-blocker (e.g., Brave Shields, uBlock Origin), you may need to disable it for `localhost:7210` to test API calls in the browser.
+
 ## Files
 
 - `docs.go` - Generated Go code that registers the OpenAPI spec

@@ -125,6 +125,180 @@
                 }
             }
         },
+        "/api/auth/api-keys": {
+            "post": {
+                "security": [{"BearerAuth": []}],
+                "description": "Generates a new API key with specified name and scopes for websocket operations",
+                "consumes": ["application/json"],
+                "produces": ["application/json"],
+                "tags": ["API Keys"],
+                "summary": "Create new API key",
+                "parameters": [
+                    {
+                        "description": "API key details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "required": ["name", "scopes"],
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "example": "My Trading Bot"
+                                },
+                                "scopes": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "enum": ["websocket:subscribe", "websocket:llm", "websocket:topic", "websocket:*"]
+                                    },
+                                    "example": ["websocket:subscribe", "websocket:llm"]
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "message": {"type": "string"},
+                                "apiKey": {
+                                    "type": "object",
+                                    "properties": {
+                                        "_id": {"type": "string"},
+                                        "name": {"type": "string"},
+                                        "prefix": {"type": "string"},
+                                        "lastChars": {"type": "string"},
+                                        "scopes": {
+                                            "type": "array",
+                                            "items": {"type": "string"}
+                                        },
+                                        "createdAt": {"type": "string"}
+                                    }
+                                },
+                                "key": {
+                                    "type": "string",
+                                    "description": "Full API key (only shown once)"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "get": {
+                "security": [{"BearerAuth": []}],
+                "description": "Retrieves all active API keys for the authenticated user",
+                "produces": ["application/json"],
+                "tags": ["API Keys"],
+                "summary": "List API keys",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "apiKeys": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "_id": {"type": "string"},
+                                            "name": {"type": "string"},
+                                            "prefix": {"type": "string"},
+                                            "lastChars": {"type": "string"},
+                                            "scopes": {
+                                                "type": "array",
+                                                "items": {"type": "string"}
+                                            },
+                                            "createdAt": {"type": "string"},
+                                            "lastUsedAt": {"type": "string"}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/auth/api-keys/{id}": {
+            "delete": {
+                "security": [{"BearerAuth": []}],
+                "description": "Revokes (deactivates) an API key by ID",
+                "produces": ["application/json"],
+                "tags": ["API Keys"],
+                "summary": "Revoke API key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "API Key ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "message": {"type": "string"}
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/marketplace/feeds": {
             "get": {
                 "description": "List all public feeds with optional filtering by category, search query, or limit",
@@ -313,6 +487,69 @@
                 }
             }
         },
+        "/api/marketplace/feeds/{id}/ai-prompt": {
+            "put": {
+                "security": [{"BearerAuth": []}],
+                "description": "Updates the default AI prompt for a feed (owner only)",
+                "consumes": ["application/json"],
+                "produces": ["application/json"],
+                "tags": ["Marketplace"],
+                "summary": "Update feed AI prompt",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Feed ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "AI prompt",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "defaultAIPrompt": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "data": {"$ref": "#/definitions/FeedResponse"}
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/marketplace/subscribe/{feedId}": {
             "post": {
                 "security": [{"BearerAuth": []}],
@@ -399,170 +636,6 @@
                     },
                     "401": {
                         "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/marketplace/feeds/{id}/topic-prompts": {
-            "get": {
-                "security": [{"BearerAuth": []}],
-                "description": "Retrieve all topic-specific prompt configurations for a feed",
-                "produces": ["application/json"],
-                "tags": ["Marketplace"],
-                "summary": "Get topic prompts",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Feed ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "success": {"type": "boolean"},
-                                "feedId": {"type": "string"},
-                                "systemPrompt": {"type": "string"},
-                                "topicCount": {"type": "integer"},
-                                "data": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                        "$ref": "#/definitions/TopicPromptCfg"
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/marketplace/feeds/{id}/topic-prompts/{topic}": {
-            "put": {
-                "security": [{"BearerAuth": []}],
-                "description": "Configure custom LLM prompts for a specific topic within a feed",
-                "consumes": ["application/json"],
-                "produces": ["application/json"],
-                "tags": ["Marketplace"],
-                "summary": "Set topic-specific prompt",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Feed ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Topic name",
-                        "name": "topic",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Topic prompt configuration",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/TopicPromptCfg"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "success": {"type": "boolean"},
-                                "data": {"$ref": "#/definitions/FeedResponse"},
-                                "topic": {"type": "string"}
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/ErrorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [{"BearerAuth": []}],
-                "description": "Remove custom prompt configuration for a specific topic",
-                "produces": ["application/json"],
-                "tags": ["Marketplace"],
-                "summary": "Delete topic prompt",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Feed ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Topic name",
-                        "name": "topic",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "success": {"type": "boolean"},
-                                "message": {"type": "string"},
-                                "topic": {"type": "string"}
-                            }
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/ErrorResponse"
                         }
@@ -905,6 +978,23 @@
                 },
                 "aiAnalysisEnabled": {
                     "type": "boolean"
+                },
+                "topicPrompts": {
+                    "type": "object",
+                    "description": "Topic-specific prompt configurations for multi-topic feeds",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/TopicPromptCfg"
+                    },
+                    "example": {
+                        "BTCUSDT": {
+                            "systemPrompt": "You are a Bitcoin market analyst.",
+                            "question": "What are the key price movements?"
+                        },
+                        "ETHUSDT": {
+                            "systemPrompt": "You are an Ethereum market analyst.",
+                            "question": "Analyze the current trend."
+                        }
+                    }
                 }
             }
         },

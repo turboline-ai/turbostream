@@ -165,8 +165,15 @@ func (s *TopicLLMScheduler) queryAndBroadcast(topic string) {
 	}
 
 	// Fallback to feed-level defaults if no topic-specific config
-	if systemPrompt == "" && s.feed != nil && s.feed.SystemPrompt != "" {
-		systemPrompt = s.feed.SystemPrompt
+	if systemPrompt == "" && s.feed != nil {
+		// Priority: DefaultAIPrompt (updated via /ai-prompt) > SystemPrompt (feed creation)
+		if s.feed.DefaultAIPrompt != "" {
+			systemPrompt = s.feed.DefaultAIPrompt
+			log.Printf("📝 Using defaultAIPrompt for %s", topic)
+		} else if s.feed.SystemPrompt != "" {
+			systemPrompt = s.feed.SystemPrompt
+			log.Printf("📝 Using systemPrompt for %s", topic)
+		}
 	}
 
 	// Query LLM
