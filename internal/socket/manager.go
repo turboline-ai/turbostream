@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,11 +30,13 @@ type WSMessage struct {
 
 // Client represents a connected WebSocket client with context and write synchronization
 type Client struct {
-	conn    *coderws.Conn
-	ctx     context.Context
-	cancel  context.CancelFunc
-	writeMu sync.Mutex
-	userID  string
+	conn     *coderws.Conn
+	ctx      context.Context
+	cancel   context.CancelFunc
+	writeMu  sync.Mutex
+	userID   string
+	authType string   // "jwt" or "apikey"
+	scopes   []string // For API key auth
 }
 
 // send writes a message to the client's WebSocket connection with thread safety
@@ -135,6 +139,7 @@ type feedConnection struct {
 type Manager struct {
 	rooms            *RoomManager
 	auth             *services.AuthService
+	apiKeyService    *services.APIKeyService
 	azure            *services.AzureOpenAI
 	llm              *services.LLMService
 	marketplace      *services.MarketplaceService
@@ -147,10 +152,11 @@ type Manager struct {
 	allowedOrigins   []string
 }
 
-func NewManager(auth *services.AuthService, azure *services.AzureOpenAI, marketplace *services.MarketplaceService, allowedOrigins []string) *Manager {
+func NewManager(auth *services.AuthService, apiKeyService *services.APIKeyService, azure *services.AzureOpenAI, marketplace *services.MarketplaceService, allowedOrigins []string) *Manager {
 	return &Manager{
 		rooms:           NewRoomManager(),
 		auth:            auth,
+		apiKeyService:   apiKeyService,
 		azure:           azure,
 		marketplace:     marketplace,
 		feedConns:       make(map[string]*feedConnection),
@@ -217,31 +223,129 @@ func (m *Manager) runClient(client *Client) {
 }
 
 // extractTopic extracts the topic value from feed data using the TopicField
+// Supports:
+//   - Root-level arrays: "[3]" extracts element at index 3 from root array
+//   - Nested paths: "data.path" navigates object hierarchy
+//   - Array indexing: "field[0]", "field[-1]" for first/last element
+//   - Combined: "data.path[-1]" for nested array access
 func (m *Manager) extractTopic(feed models.WebSocketFeed, data interface{}) string {
 	if !feed.EnableTopicRouting || feed.TopicField == "" {
 		return ""
 	}
 
-	dataMap, ok := data.(map[string]interface{})
-	if !ok {
-		return ""
+	// Navigate nested path
+	parts := strings.Split(feed.TopicField, ".")
+	current := data
+
+	for i, part := range parts {
+		// Check for array indexing: field[index], field[-1], or just [index] for root arrays
+		if strings.Contains(part, "[") && strings.Contains(part, "]") {
+			fieldName := part[:strings.Index(part, "[")]
+			indexStr := part[strings.Index(part, "[")+1 : strings.Index(part, "]")]
+
+			// Get the field first (if fieldName is not empty)
+			// For root-level array access like "[3]", fieldName will be empty
+			if fieldName != "" {
+				currentMap, ok := current.(map[string]interface{})
+				if !ok {
+					log.Printf("⚠️ extractTopic: expected map at field '%s', got %T", fieldName, current)
+					return ""
+				}
+				var exists bool
+				current, exists = currentMap[fieldName]
+				if !exists {
+					log.Printf("⚠️ extractTopic: field '%s' not found in data", fieldName)
+					return ""
+				}
+			}
+
+			// Now handle array indexing (works for both root arrays and nested arrays)
+			arr, ok := current.([]interface{})
+			if !ok {
+				log.Printf("⚠️ extractTopic: expected array at '%s', got %T", part, current)
+				return ""
+			}
+
+			if len(arr) == 0 {
+				log.Printf("⚠️ extractTopic: empty array at '%s'", part)
+				return ""
+			}
+
+			var index int
+			if indexStr == "-1" {
+				// Last element
+				index = len(arr) - 1
+			} else {
+				// Parse index
+				var err error
+				index, err = strconv.Atoi(indexStr)
+				if err != nil {
+					log.Printf("⚠️ extractTopic: invalid array index '%s': %v", indexStr, err)
+					return ""
+				}
+			}
+
+			// Validate index bounds
+			if index < 0 || index >= len(arr) {
+				log.Printf("⚠️ extractTopic: index %d out of bounds for array of length %d", index, len(arr))
+				return ""
+			}
+
+			current = arr[index]
+
+			// If this is the last part, return the value
+			if i == len(parts)-1 {
+				topic := fmt.Sprintf("%v", current)
+				log.Printf("✓ extractTopic: extracted topic '%s' from field '%s'", topic, feed.TopicField)
+				return topic
+			}
+		} else {
+			// Regular field access
+			currentMap, ok := current.(map[string]interface{})
+			if !ok {
+				log.Printf("⚠️ extractTopic: expected map at part '%s', got %T", part, current)
+				return ""
+			}
+
+			next, exists := currentMap[part]
+			if !exists {
+				log.Printf("⚠️ extractTopic: field '%s' not found", part)
+				return ""
+			}
+			current = next
+		}
 	}
 
-	if topicVal, exists := dataMap[feed.TopicField]; exists {
-		return fmt.Sprintf("%v", topicVal)
-	}
-
-	return ""
+	topic := fmt.Sprintf("%v", current)
+	log.Printf("✓ extractTopic: extracted topic '%s' from field '%s'", topic, feed.TopicField)
+	return topic
 }
 
 func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 	switch msg.Type {
 	case "authenticate":
 		var payload struct {
-			Token string `json:"token"`
+			Token  string `json:"token"`
+			APIKey string `json:"apiKey"`
 		}
-		if err := json.Unmarshal(msg.Payload, &payload); err != nil || payload.Token == "" {
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 			client.send(makeMessage("auth_error", map[string]string{"error": "invalid payload"}))
+			return
+		}
+
+		// Try API key first
+		if payload.APIKey != "" {
+			if err := m.authenticateWithAPIKey(client, payload.APIKey); err != nil {
+				client.send(makeMessage("auth_error", map[string]string{"error": err.Error()}))
+				return
+			}
+			client.send(makeMessage("authenticated", map[string]string{"userId": client.userID, "authType": "apikey"}))
+			return
+		}
+
+		// Fall back to JWT
+		if payload.Token == "" {
+			client.send(makeMessage("auth_error", map[string]string{"error": "token or apiKey required"}))
 			return
 		}
 		// Verify token using auth service
@@ -252,8 +356,12 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 		}
 		if userID, ok := claims["userId"].(string); ok {
 			client.userID = userID
-			client.send(makeMessage("authenticated", map[string]string{"userId": userID}))
+			client.authType = "jwt"
+			client.scopes = []string{"websocket:*"}
+			log.Printf("✅ JWT authentication successful - userID: %s, authType: %s, scopes: %v", userID, client.authType, client.scopes)
+			client.send(makeMessage("authenticated", map[string]string{"userId": userID, "authType": "jwt"}))
 		} else {
+			log.Printf("❌ JWT authentication failed - invalid token claims")
 			client.send(makeMessage("auth_error", map[string]string{"error": "invalid token claims"}))
 		}
 
@@ -278,6 +386,10 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 
 	case "subscribe-feed":
 		// Subscribe to raw feed data only
+		if !hasScope(client, "websocket:subscribe") {
+			client.send(makeMessage("subscription-error", map[string]string{"error": "insufficient permissions"}))
+			return
+		}
 		var payload struct {
 			UserID string `json:"userId"`
 			FeedID string `json:"feedId"`
@@ -295,6 +407,10 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 
 	case "subscribe-llm":
 		// Subscribe to LLM output only
+		if !hasScope(client, "websocket:llm") {
+			client.send(makeMessage("subscription-error", map[string]string{"error": "insufficient permissions"}))
+			return
+		}
 		var payload struct {
 			UserID string `json:"userId"`
 			FeedID string `json:"feedId"`
@@ -310,6 +426,10 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 
 	case "subscribe-all":
 		// Subscribe to both feed data and LLM output
+		if !hasScope(client, "websocket:subscribe") {
+			client.send(makeMessage("subscription-error", map[string]string{"error": "insufficient permissions"}))
+			return
+		}
 		var payload struct {
 			UserID string `json:"userId"`
 			FeedID string `json:"feedId"`
@@ -373,6 +493,10 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 
 	case "llm-query":
 		// LangChain-based LLM query using feed context
+		if !hasScope(client, "websocket:llm") {
+			client.send(makeMessage("llm-error", map[string]string{"error": "insufficient permissions"}))
+			return
+		}
 		var payload struct {
 			FeedID       string `json:"feedId"`
 			Question     string `json:"question"`
@@ -388,6 +512,10 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 
 	case "llm-query-stream":
 		// Streaming LLM query
+		if !hasScope(client, "websocket:llm") {
+			client.send(makeMessage("llm-error", map[string]string{"error": "insufficient permissions"}))
+			return
+		}
 		var payload struct {
 			FeedID       string `json:"feedId"`
 			Question     string `json:"question"`
@@ -403,9 +531,15 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 
 	case "subscribe-topic":
 		// Subscribe to specific topic intelligence
+		log.Printf("🔍 subscribe-topic request - authType: %s, scopes: %v, userID: %s", client.authType, client.scopes, client.userID)
+		if !hasScope(client, "websocket:topic") {
+			log.Printf("❌ insufficient permissions for subscribe-topic - authType: %s, scopes: %v", client.authType, client.scopes)
+			client.send(makeMessage("subscription-error", map[string]string{"error": "insufficient permissions"}))
+			return
+		}
 		var payload struct {
 			UserID string `json:"userId"`
-			FeedID string `json:"feedId"`
+			FeedID string `json:"feedid"`
 			Topic  string `json:"topic"`
 		}
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
@@ -562,6 +696,7 @@ func (m *Manager) startTopicScheduler(feed models.WebSocketFeed) error {
 	scheduler := services.NewTopicLLMScheduler(
 		feedID,
 		feed.Name,
+		&feed,
 		m.llm,
 		m.broadcastLLMIntelligence,
 	)
@@ -979,4 +1114,41 @@ func (m *Manager) handleLLMStreamQuery(client *Client, feedID, question, provide
 			"requestId": requestID,
 		}))
 	}
+}
+
+// authenticateWithAPIKey validates an API key and sets client authentication
+func (m *Manager) authenticateWithAPIKey(client *Client, rawKey string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	apiKey, err := m.apiKeyService.ValidateKey(ctx, rawKey)
+	if err != nil {
+		return errors.New("invalid API key")
+	}
+
+	// Update last used (async)
+	go func() {
+		ctx := context.Background()
+		if err := m.apiKeyService.UpdateLastUsed(ctx, apiKey.ID); err != nil {
+			log.Printf("Failed to update API key last used timestamp: %v", err)
+		}
+	}()
+
+	client.userID = apiKey.UserID.Hex()
+	client.authType = "apikey"
+	client.scopes = apiKey.Scopes
+	return nil
+}
+
+// hasScope checks if a client has the required scope for an operation
+func hasScope(client *Client, requiredScope string) bool {
+	if client.authType == "jwt" {
+		return true // JWT has all permissions
+	}
+	for _, scope := range client.scopes {
+		if scope == "websocket:*" || scope == requiredScope {
+			return true
+		}
+	}
+	return false
 }

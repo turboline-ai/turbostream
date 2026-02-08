@@ -7,8 +7,6 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
 
 	"github.com/turboline-ai/turbostream/internal/config"
 	"github.com/turboline-ai/turbostream/internal/http/handlers"
@@ -17,12 +15,13 @@ import (
 )
 
 type RouterDeps struct {
-	Config      config.Config
-	AuthService *services.AuthService
-	Marketplace *services.MarketplaceService
-	Settings    *services.SettingsService
-	LLM         *services.LLMService
-	Sockets     *socket.Manager
+	Config        config.Config
+	AuthService   *services.AuthService
+	APIKeyService *services.APIKeyService
+	Marketplace   *services.MarketplaceService
+	Settings      *services.SettingsService
+	LLM           *services.LLMService
+	Sockets       *socket.Manager
 }
 
 // BuildEngine wires up the HTTP and Socket.IO server.
@@ -31,7 +30,13 @@ func BuildEngine(deps RouterDeps) *gin.Engine {
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
 
-	// Build server's own origin for Swagger UI
+	// Security Headers - Add first to apply to all routes
+	router.Use(SecurityHeadersMiddleware())
+
+	// Global Rate Limiting - Lenient for general API usage
+	router.Use(LenientRateLimitMiddleware())
+
+	// Build server's own origin for API documentation
 	// Include both the configured host and localhost for flexibility
 	serverOrigin := fmt.Sprintf("http://%s:%d", deps.Config.Host, deps.Config.Port)
 	localhostOrigin := fmt.Sprintf("http://localhost:%d", deps.Config.Port)
@@ -45,18 +50,32 @@ func BuildEngine(deps RouterDeps) *gin.Engine {
 		MaxAge:           12 * time.Hour,
 	}))
 
-	// Swagger documentation
-	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	// API Documentation - Scalar
+	router.GET("/docs", ServeScalar)
+	router.GET("/", func(c *gin.Context) {
+		c.Redirect(302, "/docs")
+	})
+
+	// Serve OpenAPI spec for Scalar
+	router.StaticFile("/openapi/spec.json", "./docs/openapi.json")
 
 	handlers.HealthHandler(router)
 
 	// Auth routes (public + protected)
 	authHandler := handlers.NewAuthHandler(deps.AuthService)
-	publicAuth := router.Group("/api/auth")
+	// Public auth routes with strict rate limiting to prevent brute force
+	publicAuth := router.Group("/api/auth", StrictRateLimitMiddleware())
 	authHandler.RegisterPublic(publicAuth)
-	protectedAuth := router.Group("/api/auth", AuthMiddleware(deps.AuthService))
+	// Protected auth routes with moderate rate limiting
+	protectedAuth := router.Group("/api/auth", AuthMiddleware(deps.AuthService), ModerateRateLimitMiddleware())
 	authHandler.RegisterProtected(protectedAuth)
 	protectedAuth.GET("/token-usage", authHandler.GetTokenUsage)
+
+	// API Key routes
+	if deps.APIKeyService != nil {
+		apiKeyHandler := handlers.NewAPIKeyHandler(deps.APIKeyService)
+		apiKeyHandler.RegisterRoutes(protectedAuth)
+	}
 
 	// Marketplace routes
 	marketplaceHandler := handlers.NewMarketplaceHandler(deps.Marketplace, deps.Sockets)

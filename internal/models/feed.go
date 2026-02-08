@@ -39,11 +39,19 @@ type WebSocketFeed struct {
 	Documentation           string             `bson:"documentation,omitempty" json:"documentation,omitempty"`
 	DefaultAIPrompt         string             `bson:"defaultAIPrompt,omitempty" json:"defaultAIPrompt,omitempty"`
 	AIAnalysisEnabled       bool               `bson:"aiAnalysisEnabled,omitempty" json:"aiAnalysisEnabled,omitempty"`
-	EnableTopicRouting      bool               `bson:"enableTopicRouting" json:"enableTopicRouting"`
-	TopicField              string             `bson:"topicField,omitempty" json:"topicField,omitempty"`
-	CreatedAt               time.Time          `bson:"createdAt" json:"createdAt"`
-	UpdatedAt               time.Time          `bson:"updatedAt" json:"updatedAt"`
-	LastActiveAt            *time.Time         `bson:"lastActiveAt,omitempty" json:"lastActiveAt,omitempty"`
+	EnableTopicRouting      bool                       `bson:"enableTopicRouting" json:"enableTopicRouting"`
+	TopicField              string                     `bson:"topicField,omitempty" json:"topicField,omitempty"`
+	TopicPrompts            map[string]*TopicPromptCfg `bson:"topicPrompts,omitempty" json:"topicPrompts,omitempty"`
+	CreatedAt               time.Time                  `bson:"createdAt" json:"createdAt"`
+	UpdatedAt               time.Time                  `bson:"updatedAt" json:"updatedAt"`
+	LastActiveAt            *time.Time                 `bson:"lastActiveAt,omitempty" json:"lastActiveAt,omitempty"`
+}
+
+// TopicPromptCfg defines custom prompts for a specific topic
+type TopicPromptCfg struct {
+	SystemPrompt string `bson:"systemPrompt,omitempty" json:"systemPrompt,omitempty"`
+	UserPrompt   string `bson:"userPrompt,omitempty" json:"userPrompt,omitempty"`
+	Question     string `bson:"question,omitempty" json:"question,omitempty"`
 }
 
 type HTTPPollingConfig struct {

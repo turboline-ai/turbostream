@@ -15,8 +15,6 @@ import (
 	transport "github.com/turboline-ai/turbostream/internal/http"
 	"github.com/turboline-ai/turbostream/internal/services"
 	"github.com/turboline-ai/turbostream/internal/socket"
-
-	_ "github.com/turboline-ai/turbostream/docs" // Import generated docs
 )
 
 // @title           TurboStream API
@@ -54,6 +52,9 @@ import (
 // @tag.name LLM
 // @tag.description AI/LLM integration for feed analysis
 
+// @tag.name api-keys
+// @tag.description API key management for programmatic access
+
 func main() {
 	cfg := config.Load()
 
@@ -70,9 +71,17 @@ func main() {
 	log.Println("✓ MongoDB connected")
 
 	authService := services.NewAuthService(cfg, mongoClient.Raw, mongoClient.Db)
+	apiKeyService := services.NewAPIKeyService(mongoClient.Db)
 	marketplaceService := services.NewMarketplaceService(mongoClient.Db)
 	settingsService := services.NewSettingsService(mongoClient.Db)
 	azureService := services.NewAzureOpenAI(cfg)
+
+	// Create API key indexes
+	indexCtx, indexCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := apiKeyService.EnsureIndexes(indexCtx); err != nil {
+		log.Printf("⚠️  Failed to create API key indexes: %v", err)
+	}
+	indexCancel()
 
 	// Initialize LLM service with LangChain Go
 	llmService, err := services.NewLLMService(cfg)
@@ -88,23 +97,24 @@ func main() {
 		log.Printf("⚠️  failed to seed settings categories: %v", err)
 	}
 
-	socketManager := socket.NewManager(authService, azureService, marketplaceService, []string{cfg.CORSOrigin})
+	socketManager := socket.NewManager(authService, apiKeyService, azureService, marketplaceService, []string{cfg.CORSOrigin})
 	socketManager.SetLLMService(llmService)
 
 	gin.SetMode(gin.ReleaseMode)
 
 	router := transport.BuildEngine(transport.RouterDeps{
-		Config:      cfg,
-		AuthService: authService,
-		Marketplace: marketplaceService,
-		Settings:    settingsService,
-		LLM:         llmService,
-		Sockets:     socketManager,
+		Config:        cfg,
+		AuthService:   authService,
+		APIKeyService: apiKeyService,
+		Marketplace:   marketplaceService,
+		Settings:      settingsService,
+		LLM:           llmService,
+		Sockets:       socketManager,
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	log.Printf("🚀 Go backend listening on %s (CORS: %s)", addr, cfg.CORSOrigin)
-	log.Printf("📚 Swagger UI available at http://%s/swagger/index.html", addr)
+	log.Printf("📚 API Documentation available at http://%s/docs", addr)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/ws" {
 			socketManager.Handle(w, r)
