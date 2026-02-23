@@ -83,3 +83,5 @@ experiments/
 SECURITY_*.md
 AUTH_*.md
 
+.claude
+.vite
