@@ -3,6 +3,7 @@ package http
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -22,6 +23,7 @@ type RouterDeps struct {
 	Settings      *services.SettingsService
 	LLM           *services.LLMService
 	Sockets       *socket.Manager
+	FeedBuffer    *services.FeedBufferService
 }
 
 // BuildEngine wires up the HTTP and Socket.IO server.
@@ -52,12 +54,14 @@ func BuildEngine(deps RouterDeps) *gin.Engine {
 
 	// API Documentation - Scalar
 	router.GET("/docs", ServeScalar)
-	router.GET("/", func(c *gin.Context) {
-		c.Redirect(302, "/docs")
-	})
 
 	// Serve OpenAPI spec for Scalar
 	router.StaticFile("/openapi/spec.json", "./docs/openapi.json")
+
+	// Serve built Vite frontend assets
+	router.Static("/assets", "./web/dist/assets")
+	router.StaticFile("/favicon.ico", "./web/dist/favicon.ico")
+	router.StaticFile("/favicon.svg", "./web/dist/favicon.svg")
 
 	handlers.HealthHandler(router)
 
@@ -79,6 +83,7 @@ func BuildEngine(deps RouterDeps) *gin.Engine {
 
 	// Marketplace routes
 	marketplaceHandler := handlers.NewMarketplaceHandler(deps.Marketplace, deps.Sockets)
+	marketplaceHandler.Buffer = deps.FeedBuffer
 	marketplacePublic := router.Group("/api/marketplace")
 	marketplaceProtected := router.Group("/api/marketplace", AuthMiddleware(deps.AuthService))
 	marketplaceHandler.RegisterRoutes(marketplacePublic, marketplaceProtected)
@@ -113,8 +118,17 @@ func BuildEngine(deps RouterDeps) *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": []interface{}{}})
 	})
 
+	// SPA fallback: serve index.html for all non-API, non-docs browser routes
 	router.NoRoute(func(c *gin.Context) {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "route not found"})
+		path := c.Request.URL.Path
+		if strings.HasPrefix(path, "/api/") ||
+			strings.HasPrefix(path, "/docs") ||
+			strings.HasPrefix(path, "/openapi/") ||
+			path == "/ws" {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "route not found"})
+			return
+		}
+		c.File("./web/dist/index.html")
 	})
 
 	return router

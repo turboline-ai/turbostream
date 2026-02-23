@@ -22,6 +22,7 @@ import (
 type MarketplaceHandler struct {
 	Service *services.MarketplaceService
 	Sockets *socket.Manager
+	Buffer  *services.FeedBufferService
 }
 
 // NewMarketplaceHandler creates a new marketplace handler instance
@@ -45,10 +46,14 @@ func (h *MarketplaceHandler) RegisterRoutes(public, protected *gin.RouterGroup) 
 	protected.POST("/unsubscribe/:feedId", h.unsubscribe)
 	protected.GET("/subscriptions", h.subscriptions)
 	protected.PUT("/subscriptions/:feedId/settings", h.updateSubscription)
-	protected.POST("/feeds/:feedId/data", h.submitFeedData)
-	// Use the same wildcard name (:id) as the base feed route to avoid Gin conflicts.
+	protected.POST("/feeds/:id/data", h.submitFeedData)
+	// All /feeds/:param routes must share the same wildcard name (:id) to avoid Gin tree conflicts.
 	protected.PUT("/feeds/:id/ai-prompt", h.updatePrompt)
 	protected.POST("/test-feed", h.testFeed)
+	// Feed start/stop control + buffer access
+	protected.POST("/feeds/:id/start", h.startFeed)
+	protected.POST("/feeds/:id/stop", h.stopFeed)
+	protected.GET("/feeds/:id/buffer", h.getFeedBuffer)
 }
 
 // listFeeds retrieves all public feeds with optional category filter
@@ -460,7 +465,7 @@ func (h *MarketplaceHandler) updateSubscription(c *gin.Context) {
 // @Router       /api/marketplace/feeds/{feedId}/data [post]
 func (h *MarketplaceHandler) submitFeedData(c *gin.Context) {
 	userID := c.MustGet("userId").(primitive.ObjectID)
-	feedID := c.Param("feedId")
+	feedID := c.Param("id")
 	var body struct {
 		Data      interface{} `json:"data"`
 		EventName string      `json:"eventName"`
@@ -576,6 +581,172 @@ func filterMessages(messages []string) []string {
 		}
 	}
 	return out
+}
+
+// @group APIEndpoints > FeedControl : Feed start/stop engine control and buffer retrieval
+
+// startFeed connects the backend to the external feed URL (WebSocket or HTTP polling).
+// Only the feed owner may start a feed.
+//
+// @Summary      Start feed
+// @Description  Connects the backend to the external feed source (owner only)
+// @Tags         Marketplace
+// @Produce      json
+// @Param        feedId  path  string  true  "Feed ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Failure      403  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/marketplace/feeds/{feedId}/start [post]
+func (h *MarketplaceHandler) startFeed(c *gin.Context) {
+	userID := c.MustGet("userId").(primitive.ObjectID)
+	feedID := c.Param("id")
+	ctx, cancel := contextWithTimeout(c)
+	defer cancel()
+
+	feed, err := h.Service.GetFeedByID(ctx, feedID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "feed not found"})
+		return
+	}
+	if feed.OwnerID != userID.Hex() {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "not authorized"})
+		return
+	}
+
+	if err := h.Sockets.ConnectFeed(*feed); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	// Mark feed as active in MongoDB.
+	if _, err := h.Service.UpdateFeed(ctx, feed.ID, bson.M{"isActive": true}); err != nil {
+		// Non-fatal — connection already started; log and continue.
+		_ = err
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Feed started"})
+}
+
+// stopFeed disconnects the backend from the external feed URL.
+// Only the feed owner may stop a feed.
+//
+// @Summary      Stop feed
+// @Description  Disconnects the backend from the external feed source (owner only)
+// @Tags         Marketplace
+// @Produce      json
+// @Param        feedId  path  string  true  "Feed ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      403  {object}  map[string]interface{}
+// @Failure      404  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/marketplace/feeds/{feedId}/stop [post]
+func (h *MarketplaceHandler) stopFeed(c *gin.Context) {
+	userID := c.MustGet("userId").(primitive.ObjectID)
+	feedID := c.Param("id")
+	ctx, cancel := contextWithTimeout(c)
+	defer cancel()
+
+	feed, err := h.Service.GetFeedByID(ctx, feedID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "feed not found"})
+		return
+	}
+	if feed.OwnerID != userID.Hex() {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "not authorized"})
+		return
+	}
+
+	h.Sockets.StopFeed(feedID)
+
+	// Mark feed as inactive in MongoDB.
+	if _, err := h.Service.UpdateFeed(ctx, feed.ID, bson.M{"isActive": false}); err != nil {
+		_ = err
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Feed stopped"})
+}
+
+// getFeedBuffer returns recent buffered messages for a feed.
+// Any authenticated subscriber or owner may access the buffer.
+//
+// Query params:
+//   - since: ISO timestamp (optional) — return messages after this time
+//   - limit: int (optional, default 200) — max messages to return
+//
+// @Summary      Get feed buffer
+// @Description  Returns recent buffered feed messages (subscriber or owner only)
+// @Tags         Marketplace
+// @Produce      json
+// @Param        feedId  path   string  true   "Feed ID"
+// @Param        since   query  string  false  "ISO timestamp lower bound"
+// @Param        limit   query  integer false  "Max results (default 200)"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Failure      403  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/marketplace/feeds/{feedId}/buffer [get]
+func (h *MarketplaceHandler) getFeedBuffer(c *gin.Context) {
+	userID := c.MustGet("userId").(primitive.ObjectID)
+	feedID := c.Param("id")
+	ctx, cancel := contextWithTimeout(c)
+	defer cancel()
+
+	// Verify the caller is a subscriber or owner.
+	isOwner := false
+	if feed, err := h.Service.GetFeedByID(ctx, feedID); err == nil {
+		isOwner = feed.OwnerID == userID.Hex()
+	}
+	if !isOwner {
+		// Check subscription
+		subs, err := h.Service.GetSubscriptions(ctx, userID.Hex())
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "not authorized"})
+			return
+		}
+		subscribed := false
+		for _, s := range subs {
+			if s.FeedID == feedID && s.IsActive {
+				subscribed = true
+				break
+			}
+		}
+		if !subscribed {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "not authorized"})
+			return
+		}
+	}
+
+	if h.Buffer == nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": []interface{}{}, "count": 0})
+		return
+	}
+
+	limit := parseLimit(c.Query("limit"), 200)
+	sinceStr := c.Query("since")
+
+	if sinceStr != "" {
+		since, err := time.Parse(time.RFC3339, sinceStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid since timestamp"})
+			return
+		}
+		msgs, err := h.Buffer.GetRecent(ctx, feedID, since, limit)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": msgs, "count": len(msgs)})
+		return
+	}
+
+	msgs, err := h.Buffer.GetRecentN(ctx, feedID, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": msgs, "count": len(msgs)})
 }
 
 // ---- Feed connection testing (websocket-only minimal support) ----
