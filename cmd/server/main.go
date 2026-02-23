@@ -97,8 +97,20 @@ func main() {
 		log.Printf("⚠️  failed to seed settings categories: %v", err)
 	}
 
-	socketManager := socket.NewManager(authService, apiKeyService, azureService, marketplaceService, []string{cfg.CORSOrigin})
+	// In development, pass an empty origins slice so nhooyr.io/websocket sets
+	// InsecureSkipVerify: true — the browser Origin (localhost:7200) differs from
+	// the backend Host (localhost:7210) causing every WS upgrade to be rejected
+	// when a strict pattern list is used.
+	var wsOrigins []string
+	if cfg.Env != "development" {
+		wsOrigins = []string{cfg.CORSOrigin}
+	}
+	// Feed buffer service — persists incoming messages with TTL for history replay.
+	feedBufferService := services.NewFeedBufferService(mongoClient.Db)
+
+	socketManager := socket.NewManager(authService, apiKeyService, azureService, marketplaceService, wsOrigins)
 	socketManager.SetLLMService(llmService)
+	socketManager.SetFeedBufferService(feedBufferService)
 
 	gin.SetMode(gin.ReleaseMode)
 
@@ -110,6 +122,7 @@ func main() {
 		Settings:      settingsService,
 		LLM:           llmService,
 		Sockets:       socketManager,
+		FeedBuffer:    feedBufferService,
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)

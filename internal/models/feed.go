@@ -42,9 +42,12 @@ type WebSocketFeed struct {
 	EnableTopicRouting      bool                       `bson:"enableTopicRouting" json:"enableTopicRouting"`
 	TopicField              string                     `bson:"topicField,omitempty" json:"topicField,omitempty"`
 	TopicPrompts            map[string]*TopicPromptCfg `bson:"topicPrompts,omitempty" json:"topicPrompts,omitempty"`
-	CreatedAt               time.Time                  `bson:"createdAt" json:"createdAt"`
-	UpdatedAt               time.Time                  `bson:"updatedAt" json:"updatedAt"`
-	LastActiveAt            *time.Time                 `bson:"lastActiveAt,omitempty" json:"lastActiveAt,omitempty"`
+	// BufferTTLMinutes controls how long incoming data messages are retained.
+	// 0 uses the system default (30 minutes).
+	BufferTTLMinutes int        `bson:"bufferTtlMinutes,omitempty" json:"bufferTtlMinutes,omitempty"`
+	CreatedAt        time.Time  `bson:"createdAt" json:"createdAt"`
+	UpdatedAt        time.Time  `bson:"updatedAt" json:"updatedAt"`
+	LastActiveAt     *time.Time `bson:"lastActiveAt,omitempty" json:"lastActiveAt,omitempty"`
 }
 
 // TopicPromptCfg defines custom prompts for a specific topic
