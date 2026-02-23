@@ -150,6 +150,19 @@ type Manager struct {
 	topicSchedulers  map[string]*services.TopicLLMScheduler
 	topicSchedulerMu sync.RWMutex
 	allowedOrigins   []string
+
+	// @group BusinessLogic > HTTPPoller : per-feed HTTP pollers for REST feeds
+	httpPollers map[string]*HTTPPoller
+	pollerMu    sync.RWMutex
+
+	// @group BusinessLogic > FeedBuffer : persistent message buffer service
+	buffer *services.FeedBufferService
+
+	// @group BusinessLogic > AutoAnalysis : per-feed auto-analysis toggle + debounce
+	autoAnalysis     map[string]bool
+	autoAnalysisMu   sync.RWMutex
+	lastAutoTrigger  map[string]time.Time
+	lastTriggerMu    sync.RWMutex
 }
 
 func NewManager(auth *services.AuthService, apiKeyService *services.APIKeyService, azure *services.AzureOpenAI, marketplace *services.MarketplaceService, allowedOrigins []string) *Manager {
@@ -163,7 +176,15 @@ func NewManager(auth *services.AuthService, apiKeyService *services.APIKeyServic
 		subscribers:     make(map[string]map[*Client]struct{}),
 		topicSchedulers: make(map[string]*services.TopicLLMScheduler),
 		allowedOrigins:  allowedOrigins,
+		httpPollers:     make(map[string]*HTTPPoller),
+		autoAnalysis:    make(map[string]bool),
+		lastAutoTrigger: make(map[string]time.Time),
 	}
+}
+
+// SetFeedBufferService injects the buffer service after construction.
+func (m *Manager) SetFeedBufferService(buf *services.FeedBufferService) {
+	m.buffer = buf
 }
 
 // SetLLMService sets the LLM service for AI queries
@@ -461,6 +482,25 @@ func (m *Manager) handleMessage(client *Client, msg WSMessage) {
 		m.untrackSubscriber(payload.FeedID, client)
 		client.send(makeMessage("unsubscription-success", map[string]string{"feedId": payload.FeedID}))
 
+	case "toggle-auto-analysis":
+		// Enable or disable data-triggered auto-analysis for a specific feed
+		var payload struct {
+			FeedID  string `json:"feedId"`
+			Enabled bool   `json:"enabled"`
+		}
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil || payload.FeedID == "" {
+			client.send(makeMessage("error", map[string]string{"error": "invalid payload"}))
+			return
+		}
+		m.autoAnalysisMu.Lock()
+		m.autoAnalysis[payload.FeedID] = payload.Enabled
+		m.autoAnalysisMu.Unlock()
+		log.Printf("🔄 auto-analysis for feed %s set to %v", payload.FeedID, payload.Enabled)
+		client.send(makeMessage("auto-analysis-toggled", map[string]interface{}{
+			"feedId":  payload.FeedID,
+			"enabled": payload.Enabled,
+		}))
+
 	case "analyze-crypto":
 		var payload map[string]interface{}
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
@@ -618,6 +658,7 @@ func makeMessage(eventType string, payload interface{}) WSMessage {
 }
 
 // BroadcastFeedData sends feed updates to clients subscribed to feed data.
+// It also stores the message in the persistent buffer and triggers auto-analysis if enabled.
 func (m *Manager) BroadcastFeedData(feed models.WebSocketFeed, data interface{}, eventName string) {
 	// Extract topic if this is a topic-routed feed
 	topic := m.extractTopic(feed, data)
@@ -625,6 +666,21 @@ func (m *Manager) BroadcastFeedData(feed models.WebSocketFeed, data interface{},
 	// Add to LLM context with topic
 	if m.llm != nil {
 		m.llm.AddFeedData(feed.ID.Hex(), feed.Name, data, topic)
+	}
+
+	// Persist to buffer (non-blocking best-effort)
+	if m.buffer != nil {
+		ttl := services.DefaultBufferTTL
+		if feed.BufferTTLMinutes > 0 {
+			ttl = time.Duration(feed.BufferTTLMinutes) * time.Minute
+		}
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := m.buffer.Store(ctx, feed.ID.Hex(), data, eventName, ttl); err != nil {
+				log.Printf("⚠️ buffer store error for feed %s: %v", feed.ID.Hex(), err)
+			}
+		}()
 	}
 
 	// For topic feeds: DON'T broadcast raw data
@@ -646,6 +702,46 @@ func (m *Manager) BroadcastFeedData(feed models.WebSocketFeed, data interface{},
 	room := dataRoom(feed.ID.Hex())
 	log.Printf("📡 broadcasting feed-data to room %s (feed: %s)", room, feed.Name)
 	m.rooms.Broadcast(room, makeMessage("feed-data", payload))
+
+	// Trigger auto-analysis if enabled for this feed (debounced)
+	if m.isAutoAnalysisEnabled(feed.ID.Hex()) && m.llm != nil {
+		go m.triggerAutoAnalysis(feed.ID.Hex())
+	}
+}
+
+// isAutoAnalysisEnabled checks if auto-analysis is toggled on for a feed.
+func (m *Manager) isAutoAnalysisEnabled(feedID string) bool {
+	m.autoAnalysisMu.RLock()
+	defer m.autoAnalysisMu.RUnlock()
+	return m.autoAnalysis[feedID]
+}
+
+// triggerAutoAnalysis runs an LLM query on new data and broadcasts the result.
+// Debounced: ignores triggers that arrive within 2s of the previous one.
+func (m *Manager) triggerAutoAnalysis(feedID string) {
+	const debounce = 2 * time.Second
+	now := time.Now()
+	m.lastTriggerMu.Lock()
+	last := m.lastAutoTrigger[feedID]
+	if now.Sub(last) < debounce {
+		m.lastTriggerMu.Unlock()
+		return
+	}
+	m.lastAutoTrigger[feedID] = now
+	m.lastTriggerMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req := services.QueryRequest{
+		FeedID:   feedID,
+		Question: "Briefly analyze the latest incoming data. What is notable or changed?",
+	}
+	resp, err := m.llm.Query(ctx, req)
+	if err != nil {
+		log.Printf("⚠️ auto-analysis failed for feed %s: %v", feedID, err)
+		return
+	}
+	m.BroadcastLLMOutput(feedID, resp.Answer, resp.Provider)
 }
 
 // BroadcastLLMOutput sends LLM analysis to clients subscribed to LLM output.
@@ -735,8 +831,14 @@ func (m *Manager) ensureTopicLoop(feedID, topic string) {
 	}
 }
 
-// ConnectFeed opens a websocket connection to the external feed (basic websocket only) and broadcasts messages to subscribers.
+// ConnectFeed opens a connection to the external feed and broadcasts messages to subscribers.
+// Supports: websocket, socketio (gorilla), http-polling.
 func (m *Manager) ConnectFeed(feed models.WebSocketFeed) error {
+	// Route http-polling feeds to the HTTP poller
+	if feed.ConnectionType == "http-polling" {
+		return m.connectHTTPPoller(feed)
+	}
+
 	if feed.ConnectionType != "" && feed.ConnectionType != "websocket" && feed.ConnectionType != "socketio" {
 		log.Printf("skipping feed %s: unsupported connection type %s", feed.ID.Hex(), feed.ConnectionType)
 		return nil
@@ -827,25 +929,52 @@ func (m *Manager) ConnectFeed(feed models.WebSocketFeed) error {
 	return nil
 }
 
-// StopFeed stops the websocket connection for a given feed
+// StopFeed stops the connection for a given feed (WebSocket or HTTP poller).
 func (m *Manager) StopFeed(feedID string) {
+	// Stop WebSocket feed connection
 	m.feedMu.Lock()
 	if fc, exists := m.feedConns[feedID]; exists {
-		// Check if channel is already closed to avoid panic
 		select {
 		case <-fc.stop:
 			// already closed
 		default:
 			close(fc.stop)
 		}
-		// We don't delete here because readLoop's defer will handle it
-		// and we want to avoid race conditions or double deletes
 		log.Printf("stopped feed %s", feedID)
 	}
 	m.feedMu.Unlock()
 
+	// Stop HTTP poller if exists
+	m.pollerMu.Lock()
+	if poller, exists := m.httpPollers[feedID]; exists {
+		poller.Stop()
+		delete(m.httpPollers, feedID)
+		log.Printf("stopped HTTP poller for feed %s", feedID)
+	}
+	m.pollerMu.Unlock()
+
 	// Stop topic scheduler if exists
 	m.stopTopicScheduler(feedID)
+}
+
+// connectHTTPPoller starts an HTTP poller for a feed with ConnectionType="http-polling".
+func (m *Manager) connectHTTPPoller(feed models.WebSocketFeed) error {
+	m.pollerMu.Lock()
+	defer m.pollerMu.Unlock()
+	if _, exists := m.httpPollers[feed.ID.Hex()]; exists {
+		log.Printf("HTTP poller already running for feed %s", feed.ID.Hex())
+		return nil
+	}
+	poller := NewHTTPPoller(feed, m.BroadcastFeedData)
+	m.httpPollers[feed.ID.Hex()] = poller
+	poller.Start()
+	// Start topic scheduler if enabled
+	if feed.EnableTopicRouting && m.llm != nil {
+		if err := m.startTopicScheduler(feed); err != nil {
+			log.Printf("⚠️ Failed to start topic scheduler for HTTP feed: %v", err)
+		}
+	}
+	return nil
 }
 
 func (m *Manager) ensureFeedConnection(feedID string) {
