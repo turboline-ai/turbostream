@@ -1,23 +1,27 @@
-FROM golang:1.24-alpine
+# Stage 1: Build frontend
+FROM node:22-alpine AS frontend
+WORKDIR /app/web
+COPY web/package*.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
 
+# Stage 2: Build Go backend
+FROM golang:1.24-alpine AS backend
 WORKDIR /app
-
-# Install ca-certificates for HTTPS calls (MongoDB, APIs, etc.)
 RUN apk add --no-cache ca-certificates
-
-# Copy go.mod and go.sum first for better caching
 COPY go.mod go.sum ./
 RUN go mod download
-
-# Copy source code
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
-
-# Debug: List files to verify copy worked
-RUN ls -la && ls -la cmd/ && ls -la cmd/server/
-
-# Build the application
+COPY docs/ ./docs/
 RUN go build -o main ./cmd/server
 
-# Run
+# Stage 3: Runtime
+FROM alpine:latest
+RUN apk add --no-cache ca-certificates
+WORKDIR /app
+COPY --from=backend /app/main .
+COPY --from=backend /app/docs ./docs/
+COPY --from=frontend /app/web/dist ./web/dist
 CMD ["./main"]
