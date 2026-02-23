@@ -1,0 +1,734 @@
+{
+  "tsx": [
+    {
+      "functionality": "configuration",
+      "description": "Application root — providers setup",
+      "filePath": "web/src/app.tsx",
+      "lineNumbers": "1-34"
+    },
+    {
+      "functionality": "businesslogic > account",
+      "description": "Tabbed account settings page",
+      "filePath": "web/src/pages/account/account-page.tsx",
+      "lineNumbers": "1-33"
+    },
+    {
+      "functionality": "authentication",
+      "description": "Login page with 2FA redirect support",
+      "filePath": "web/src/pages/auth/login-page.tsx",
+      "lineNumbers": "1-116"
+    },
+    {
+      "functionality": "authentication",
+      "description": "User registration page",
+      "filePath": "web/src/pages/auth/register-page.tsx",
+      "lineNumbers": "1-118"
+    },
+    {
+      "functionality": "businesslogic > account > sessions",
+      "description": "Active session management and login history",
+      "filePath": "web/src/pages/account/sessions-tab.tsx",
+      "lineNumbers": "1-23"
+    },
+    {
+      "functionality": "businesslogic > account > security",
+      "description": "Password change and 2FA management",
+      "filePath": "web/src/pages/account/security-tab.tsx",
+      "lineNumbers": "1-188"
+    },
+    {
+      "functionality": "businesslogic > account > profile",
+      "description": "User profile display and preferences",
+      "filePath": "web/src/pages/account/profile-tab.tsx",
+      "lineNumbers": "1-59"
+    },
+    {
+      "functionality": "authentication",
+      "description": "TOTP / backup code entry after login",
+      "filePath": "web/src/pages/auth/two-factor-page.tsx",
+      "lineNumbers": "1-35"
+    },
+    {
+      "functionality": "businesslogic > account > apikeys",
+      "description": "API key creation and management",
+      "filePath": "web/src/pages/account/api-keys-tab.tsx",
+      "lineNumbers": "1-49"
+    },
+    {
+      "functionality": "errorhandling",
+      "description": "React error boundary with retry button",
+      "filePath": "web/src/components/shared/error-boundary.tsx",
+      "lineNumbers": "1-42"
+    },
+    {
+      "functionality": "navigation",
+      "description": "Root layout shell — sidebar + topbar + page outlet",
+      "filePath": "web/src/components/shared/app-shell.tsx",
+      "lineNumbers": "1-9"
+    },
+    {
+      "functionality": "utilities",
+      "description": "Full-page and inline loading spinner",
+      "filePath": "web/src/components/shared/loading-spinner.tsx",
+      "lineNumbers": "1-23"
+    },
+    {
+      "functionality": "utilities",
+      "description": "Feed status and verification badge components",
+      "filePath": "web/src/components/shared/status-badge.tsx",
+      "lineNumbers": "1-30"
+    },
+    {
+      "functionality": "authentication",
+      "description": "Protected route guard",
+      "filePath": "web/src/components/shared/protected-route.tsx",
+      "lineNumbers": "1-17"
+    },
+    {
+      "functionality": "navigation",
+      "description": "Top bar with user menu and WS status",
+      "filePath": "web/src/components/shared/top-bar.tsx",
+      "lineNumbers": "1-47"
+    },
+    {
+      "functionality": "businesslogic",
+      "description": "Token usage progress bar with threshold colors",
+      "filePath": "web/src/components/shared/token-usage-bar.tsx",
+      "lineNumbers": "1-36"
+    },
+    {
+      "functionality": "websocket",
+      "description": "Connection status indicator dot",
+      "filePath": "web/src/components/shared/ws-status-indicator.tsx",
+      "lineNumbers": "1-25"
+    },
+    {
+      "functionality": "businesslogic > feedform",
+      "description": "Multi-step feed creation wizard",
+      "filePath": "web/src/pages/my-feeds/create-feed-page.tsx",
+      "lineNumbers": "1-61"
+    },
+    {
+      "functionality": "businesslogic > feedform > kveditor",
+      "description": "Key-value pair editor helper",
+      "filePath": "web/src/pages/my-feeds/create-feed-page.tsx",
+      "lineNumbers": "99-292"
+    },
+    {
+      "functionality": "businesslogic",
+      "description": "Reusable feed card for marketplace and dashboard",
+      "filePath": "web/src/components/shared/feed-card.tsx",
+      "lineNumbers": "1-81"
+    },
+    {
+      "functionality": "businesslogic > marketplace",
+      "description": "Feed browsing, search, and subscription",
+      "filePath": "web/src/pages/marketplace/marketplace-page.tsx",
+      "lineNumbers": "1-35"
+    },
+    {
+      "functionality": "businesslogic > marketplace > components",
+      "description": "Feed grid",
+      "filePath": "web/src/pages/marketplace/marketplace-page.tsx",
+      "lineNumbers": "169-195"
+    },
+    {
+      "functionality": "businesslogic > dashboard",
+      "description": "Subscribed feeds overview",
+      "filePath": "web/src/pages/dashboard/dashboard-page.tsx",
+      "lineNumbers": "1-65"
+    },
+    {
+      "functionality": "navigation",
+      "description": "Left sidebar navigation",
+      "filePath": "web/src/components/shared/nav-sidebar.tsx",
+      "lineNumbers": "1-48"
+    },
+    {
+      "functionality": "configuration",
+      "description": "React Router v6 route definitions",
+      "filePath": "web/src/router.tsx",
+      "lineNumbers": "1-12"
+    },
+    {
+      "functionality": "configuration > lazyroutes",
+      "description": "Lazy-loaded page components",
+      "filePath": "web/src/router.tsx",
+      "lineNumbers": "13-29"
+    },
+    {
+      "functionality": "businesslogic > myfeeds",
+      "description": "User's owned feed management",
+      "filePath": "web/src/pages/my-feeds/my-feeds-page.tsx",
+      "lineNumbers": "1-21"
+    },
+    {
+      "functionality": "utilities > myfeeds",
+      "description": "Feed type label helpers",
+      "filePath": "web/src/pages/my-feeds/my-feeds-page.tsx",
+      "lineNumbers": "22-178"
+    },
+    {
+      "functionality": "businesslogic > feedform",
+      "description": "Feed edit page (reuses form logic)",
+      "filePath": "web/src/pages/my-feeds/edit-feed-page.tsx",
+      "lineNumbers": "1-52"
+    },
+    {
+      "functionality": "businesslogic > llm",
+      "description": "AI Query page — 2-panel live data + AI chat",
+      "filePath": "web/src/pages/llm/llm-query-page.tsx",
+      "lineNumbers": "1-22"
+    },
+    {
+      "functionality": "utilities > llm",
+      "description": "Generate unique request IDs",
+      "filePath": "web/src/pages/llm/llm-query-page.tsx",
+      "lineNumbers": "23-27"
+    },
+    {
+      "functionality": "utilities > llm",
+      "description": "Format timestamp for display",
+      "filePath": "web/src/pages/llm/llm-query-page.tsx",
+      "lineNumbers": "28-37"
+    },
+    {
+      "functionality": "utilities > llm",
+      "description": "WS status indicator",
+      "filePath": "web/src/pages/llm/llm-query-page.tsx",
+      "lineNumbers": "38-47"
+    },
+    {
+      "functionality": "businesslogic > llm > selection",
+      "description": "Feed and provider state",
+      "filePath": "web/src/pages/llm/llm-query-page.tsx",
+      "lineNumbers": "48-57"
+    },
+    {
+      "functionality": "businesslogic > llm > stream",
+      "description": "Active streaming state",
+      "filePath": "web/src/pages/llm/llm-query-page.tsx",
+      "lineNumbers": "58-65"
+    },
+    {
+      "functionality": "businesslogic > llm > queries",
+      "description": "Feed and provider data",
+      "filePath": "web/src/pages/llm/llm-query-page.tsx",
+      "lineNumbers": "66-69"
+    },
+    {
+      "functionality": "businesslogic > llm > livedata",
+      "description": "WebSocket feed stream",
+      "filePath": "web/src/pages/llm/llm-query-page.tsx",
+      "lineNumbers": "84-86"
+    },
+    {
+      "functionality": "businesslogic > llm > buffer",
+      "description": "Historical messages",
+      "filePath": "web/src/pages/llm/llm-query-page.tsx",
+      "lineNumbers": "87-89"
+    },
+    {
+      "functionality": "businesslogic > llm > autoscroll",
+      "description": "Scroll to bottom on new messages",
+      "filePath": "web/src/pages/llm/llm-query-page.tsx",
+      "lineNumbers": "90-98"
+    },
+    {
+      "functionality": "businesslogic > llm > streamcompletion",
+      "description": "Detect stream complete",
+      "filePath": "web/src/pages/llm/llm-query-page.tsx",
+      "lineNumbers": "99-105"
+    },
+    {
+      "functionality": "businesslogic > llm > autoanalysis",
+      "description": "Toggle on server when changed",
+      "filePath": "web/src/pages/llm/llm-query-page.tsx",
+      "lineNumbers": "106-111"
+    },
+    {
+      "functionality": "businesslogic > llm > feedchange",
+      "description": "Reset state on feed change",
+      "filePath": "web/src/pages/llm/llm-query-page.tsx",
+      "lineNumbers": "112-119"
+    },
+    {
+      "functionality": "businesslogic > llm > query",
+      "description": "Send manual query over WS",
+      "filePath": "web/src/pages/llm/llm-query-page.tsx",
+      "lineNumbers": "120-146"
+    },
+    {
+      "functionality": "businesslogic > feeddetail",
+      "description": "Live feed stream viewer with LLM panel",
+      "filePath": "web/src/pages/marketplace/feed-detail-page.tsx",
+      "lineNumbers": "1-23"
+    },
+    {
+      "functionality": "utilities > feeddetail",
+      "description": "Generate a random request ID for LLM stream tracking",
+      "filePath": "web/src/pages/marketplace/feed-detail-page.tsx",
+      "lineNumbers": "24-28"
+    },
+    {
+      "functionality": "types > feeddetail",
+      "description": "Track question alongside requestId for display",
+      "filePath": "web/src/pages/marketplace/feed-detail-page.tsx",
+      "lineNumbers": "29-41"
+    },
+    {
+      "functionality": "businesslogic > feeddetail > streamscoping",
+      "description": "Track the current request ID to scope stream display",
+      "filePath": "web/src/pages/marketplace/feed-detail-page.tsx",
+      "lineNumbers": "42-48"
+    },
+    {
+      "functionality": "apiendpoints > feeddetail",
+      "description": "Fetch feed details + subscriptions",
+      "filePath": "web/src/pages/marketplace/feed-detail-page.tsx",
+      "lineNumbers": "49-53"
+    },
+    {
+      "functionality": "websocket > feeddetail",
+      "description": "Subscribe to live feed stream + get messages",
+      "filePath": "web/src/pages/marketplace/feed-detail-page.tsx",
+      "lineNumbers": "64-69"
+    },
+    {
+      "functionality": "businesslogic > feeddetail > streamscoping",
+      "description": "Get current request's stream (scoped, not global first-key)",
+      "filePath": "web/src/pages/marketplace/feed-detail-page.tsx",
+      "lineNumbers": "70-72"
+    },
+    {
+      "functionality": "businesslogic > feeddetail > streamcompletion",
+      "description": "Reactively watch stream completion (replaces setInterval polling)",
+      "filePath": "web/src/pages/marketplace/feed-detail-page.tsx",
+      "lineNumbers": "73-81"
+    },
+    {
+      "functionality": "businesslogic > feeddetail > autoscroll",
+      "description": "Auto-scroll feed messages on new data",
+      "filePath": "web/src/pages/marketplace/feed-detail-page.tsx",
+      "lineNumbers": "82-90"
+    },
+    {
+      "functionality": "apiendpoints > feeddetail > subscriptions",
+      "description": "Subscribe/unsubscribe mutations",
+      "filePath": "web/src/pages/marketplace/feed-detail-page.tsx",
+      "lineNumbers": "91-112"
+    },
+    {
+      "functionality": "businesslogic > feeddetail > manualquery",
+      "description": "Send LLM stream query via WebSocket",
+      "filePath": "web/src/pages/marketplace/feed-detail-page.tsx",
+      "lineNumbers": "113-132"
+    },
+    {
+      "functionality": "businesslogic > feeddetail > wsstatus",
+      "description": "Map WS status to indicator icon",
+      "filePath": "web/src/pages/marketplace/feed-detail-page.tsx",
+      "lineNumbers": "133-143"
+    },
+    {
+      "functionality": "businesslogic > feeddetail > querylookup",
+      "description": "Resolve question for a given requestId",
+      "filePath": "web/src/pages/marketplace/feed-detail-page.tsx",
+      "lineNumbers": "144-376"
+    }
+  ],
+  "ts": [
+    {
+      "functionality": "configuration",
+      "description": "Client-side route path constants",
+      "filePath": "web/src/config/routes.ts",
+      "lineNumbers": "1-20"
+    },
+    {
+      "functionality": "configuration",
+      "description": "Environment variable constants with safe fallbacks",
+      "filePath": "web/src/config/env.ts",
+      "lineNumbers": "1-5"
+    },
+    {
+      "functionality": "utilities",
+      "description": "JWT decode and expiry helpers",
+      "filePath": "web/src/utils/jwt.ts",
+      "lineNumbers": "1-25"
+    },
+    {
+      "functionality": "utilities",
+      "description": "Date, number, and string formatters",
+      "filePath": "web/src/utils/format.ts",
+      "lineNumbers": "1-43"
+    },
+    {
+      "functionality": "utilities",
+      "description": "Tailwind className merge helper (shadcn/ui standard)",
+      "filePath": "web/src/utils/cn.ts",
+      "lineNumbers": "1-9"
+    },
+    {
+      "functionality": "types",
+      "description": "API response envelope types",
+      "filePath": "web/src/types/api.ts",
+      "lineNumbers": "1-25"
+    },
+    {
+      "functionality": "apiclient",
+      "description": "Axios instance with JWT injection and 401 handling",
+      "filePath": "web/src/services/api-client.ts",
+      "lineNumbers": "1-12"
+    },
+    {
+      "functionality": "apiclient > interceptors",
+      "description": "Attach token and handle auth errors",
+      "filePath": "web/src/services/api-client.ts",
+      "lineNumbers": "13-23"
+    },
+    {
+      "functionality": "authentication",
+      "description": "Global auth state with localStorage persistence",
+      "filePath": "web/src/stores/auth-store.ts",
+      "lineNumbers": "1-44"
+    },
+    {
+      "functionality": "apiendpoints > auth",
+      "description": "All /api/auth/* endpoint calls",
+      "filePath": "web/src/services/auth-api.ts",
+      "lineNumbers": "1-16"
+    },
+    {
+      "functionality": "apiendpoints > auth > public",
+      "description": "Registration and login",
+      "filePath": "web/src/services/auth-api.ts",
+      "lineNumbers": "17-26"
+    },
+    {
+      "functionality": "apiendpoints > auth > protected",
+      "description": "Authenticated user actions",
+      "filePath": "web/src/services/auth-api.ts",
+      "lineNumbers": "29-48"
+    },
+    {
+      "functionality": "apiendpoints > auth > 2fa",
+      "description": "Two-factor authentication management",
+      "filePath": "web/src/services/auth-api.ts",
+      "lineNumbers": "49-74"
+    },
+    {
+      "functionality": "apiendpoints > auth > sessions",
+      "description": "Session management",
+      "filePath": "web/src/services/auth-api.ts",
+      "lineNumbers": "75-95"
+    },
+    {
+      "functionality": "apiendpoints > auth > apikeys",
+      "description": "API key management",
+      "filePath": "web/src/services/auth-api.ts",
+      "lineNumbers": "96-110"
+    },
+    {
+      "functionality": "types",
+      "description": "API key types and scopes",
+      "filePath": "web/src/types/api-key.ts",
+      "lineNumbers": "1-31"
+    },
+    {
+      "functionality": "apiendpoints > settings",
+      "description": "Category and settings endpoint calls",
+      "filePath": "web/src/services/settings-api.ts",
+      "lineNumbers": "1-18"
+    },
+    {
+      "functionality": "types",
+      "description": "User, session, and token usage types",
+      "filePath": "web/src/types/user.ts",
+      "lineNumbers": "1-79"
+    },
+    {
+      "functionality": "types",
+      "description": "LLM query and provider types",
+      "filePath": "web/src/types/llm.ts",
+      "lineNumbers": "1-36"
+    },
+    {
+      "functionality": "testsetup",
+      "description": "Global test configuration",
+      "filePath": "web/excluded/test/setup.ts",
+      "lineNumbers": "1-4"
+    },
+    {
+      "functionality": "utilities",
+      "description": "Debounce hook for search inputs",
+      "filePath": "web/src/hooks/use-debounce.ts",
+      "lineNumbers": "1-15"
+    },
+    {
+      "functionality": "websocket",
+      "description": "SSE streaming hook for LLM HTTP queries",
+      "filePath": "web/src/hooks/use-llm-stream.ts",
+      "lineNumbers": "1-60"
+    },
+    {
+      "functionality": "authentication",
+      "description": "Auth store selectors and actions",
+      "filePath": "web/src/hooks/use-auth.ts",
+      "lineNumbers": "1-55"
+    },
+    {
+      "functionality": "unittests",
+      "description": "Auth store state management tests",
+      "filePath": "web/excluded/test/unit/auth-store.test.ts",
+      "lineNumbers": "1-19"
+    },
+    {
+      "functionality": "unittests > authstore",
+      "description": "setAuth action",
+      "filePath": "web/excluded/test/unit/auth-store.test.ts",
+      "lineNumbers": "20-28"
+    },
+    {
+      "functionality": "unittests > authstore",
+      "description": "clearAuth action",
+      "filePath": "web/excluded/test/unit/auth-store.test.ts",
+      "lineNumbers": "29-38"
+    },
+    {
+      "functionality": "unittests > authstore",
+      "description": "updateUser action",
+      "filePath": "web/excluded/test/unit/auth-store.test.ts",
+      "lineNumbers": "39-51"
+    },
+    {
+      "functionality": "unittests > authstore",
+      "description": "updateTokenUsage action",
+      "filePath": "web/excluded/test/unit/auth-store.test.ts",
+      "lineNumbers": "52-70"
+    },
+    {
+      "functionality": "unittests",
+      "description": "JWT utility function tests",
+      "filePath": "web/excluded/test/unit/jwt-utils.test.ts",
+      "lineNumbers": "1-5"
+    },
+    {
+      "functionality": "testhelpers",
+      "description": "Test JWT helpers",
+      "filePath": "web/excluded/test/unit/jwt-utils.test.ts",
+      "lineNumbers": "6-61"
+    },
+    {
+      "functionality": "unittests",
+      "description": "Format utility function tests",
+      "filePath": "web/excluded/test/unit/format.test.ts",
+      "lineNumbers": "1-43"
+    },
+    {
+      "functionality": "apiendpoints > llm",
+      "description": "All /api/llm/* endpoint calls",
+      "filePath": "web/src/services/llm-api.ts",
+      "lineNumbers": "1-7"
+    },
+    {
+      "functionality": "constants > llm",
+      "description": "Human-readable display names for backend provider identifiers",
+      "filePath": "web/src/services/llm-api.ts",
+      "lineNumbers": "8-19"
+    },
+    {
+      "functionality": "apiendpoints > llm > providers",
+      "description": "Get available LLM providers",
+      "filePath": "web/src/services/llm-api.ts",
+      "lineNumbers": "20"
+    },
+    {
+      "functionality": "apiendpoints > llm > streaming",
+      "description": "SSE streaming query",
+      "filePath": "web/src/services/llm-api.ts",
+      "lineNumbers": "54-72"
+    },
+    {
+      "functionality": "types",
+      "description": "Feed and subscription types",
+      "filePath": "web/src/types/feed.ts",
+      "lineNumbers": "1-61"
+    },
+    {
+      "functionality": "types",
+      "description": "Persistent buffer message returned by GET /feeds/:id/buffer",
+      "filePath": "web/src/types/feed.ts",
+      "lineNumbers": "62-123"
+    },
+    {
+      "functionality": "apiendpoints > marketplace",
+      "description": "All /api/marketplace/* endpoint calls",
+      "filePath": "web/src/services/marketplace-api.ts",
+      "lineNumbers": "1-7"
+    },
+    {
+      "functionality": "apiendpoints > marketplace > public",
+      "description": "Public feed browsing",
+      "filePath": "web/src/services/marketplace-api.ts",
+      "lineNumbers": "8-11"
+    },
+    {
+      "functionality": "apiendpoints > marketplace > protected",
+      "description": "Authenticated actions",
+      "filePath": "web/src/services/marketplace-api.ts",
+      "lineNumbers": "36-89"
+    },
+    {
+      "functionality": "apiendpoints > marketplace > feedcontrol",
+      "description": "Start/stop feed engine + buffer retrieval",
+      "filePath": "web/src/services/marketplace-api.ts",
+      "lineNumbers": "92-108"
+    },
+    {
+      "functionality": "websocket > client",
+      "description": "Singleton WebSocket connection manager",
+      "filePath": "web/src/services/ws-client.ts",
+      "lineNumbers": "1-17"
+    },
+    {
+      "functionality": "websocket > client > reconnect",
+      "description": "Backoff configuration",
+      "filePath": "web/src/services/ws-client.ts",
+      "lineNumbers": "18-35"
+    },
+    {
+      "functionality": "websocket > client > connection",
+      "description": "Open and close",
+      "filePath": "web/src/services/ws-client.ts",
+      "lineNumbers": "36-87"
+    },
+    {
+      "functionality": "websocket > client > auth",
+      "description": "Handle authentication flow — registered once at connect()",
+      "filePath": "web/src/services/ws-client.ts",
+      "lineNumbers": "88-89"
+    },
+    {
+      "functionality": "websocket > client > send",
+      "description": "Outgoing message helpers",
+      "filePath": "web/src/services/ws-client.ts",
+      "lineNumbers": "121-145"
+    },
+    {
+      "functionality": "websocket > client > events",
+      "description": "Handler registration",
+      "filePath": "web/src/services/ws-client.ts",
+      "lineNumbers": "146-163"
+    },
+    {
+      "functionality": "websocket > client > internal",
+      "description": "Heartbeat and reconnect",
+      "filePath": "web/src/services/ws-client.ts",
+      "lineNumbers": "164-169"
+    },
+    {
+      "functionality": "websocket",
+      "description": "Real-time connection state and message buffers",
+      "filePath": "web/src/stores/ws-store.ts",
+      "lineNumbers": "1-89"
+    },
+    {
+      "functionality": "websocket > buffer",
+      "description": "Hydrate feed messages from backend buffer (dedup by timestamp)",
+      "filePath": "web/src/stores/ws-store.ts",
+      "lineNumbers": "90-96"
+    },
+    {
+      "functionality": "types",
+      "description": "WebSocket message and event payload types",
+      "filePath": "web/src/types/ws.ts",
+      "lineNumbers": "1-4"
+    },
+    {
+      "functionality": "websocket",
+      "description": "Global WS lifecycle hook — mount at app root",
+      "filePath": "web/src/hooks/use-websocket.ts",
+      "lineNumbers": "1-13"
+    },
+    {
+      "functionality": "websocket > messagerouting",
+      "description": "Route inbound messages to store",
+      "filePath": "web/src/hooks/use-websocket.ts",
+      "lineNumbers": "21-47"
+    },
+    {
+      "functionality": "websocket > autoanalysis",
+      "description": "Sync auto-analysis state confirmed by backend",
+      "filePath": "web/src/hooks/use-websocket.ts",
+      "lineNumbers": "48-63"
+    },
+    {
+      "functionality": "websocket",
+      "description": "Per-feed subscription, buffer hydration, and auto-analysis",
+      "filePath": "web/src/hooks/use-feed-stream.ts",
+      "lineNumbers": "1-10"
+    },
+    {
+      "functionality": "constants > feedstream",
+      "description": "Stable empty arrays — avoids new reference on every render when no data exists",
+      "filePath": "web/src/hooks/use-feed-stream.ts",
+      "lineNumbers": "11-18"
+    },
+    {
+      "functionality": "websocket > selectors",
+      "description": "useShallow prevents new reference when array contents unchanged",
+      "filePath": "web/src/hooks/use-feed-stream.ts",
+      "lineNumbers": "19-30"
+    },
+    {
+      "functionality": "websocket > autoanalysis",
+      "description": "Ref so cleanup closure always reads latest value",
+      "filePath": "web/src/hooks/use-feed-stream.ts",
+      "lineNumbers": "31-34"
+    },
+    {
+      "functionality": "websocket > buffer",
+      "description": "Load recent buffer history when subscribing",
+      "filePath": "web/src/hooks/use-feed-stream.ts",
+      "lineNumbers": "35-39"
+    },
+    {
+      "functionality": "websocket > autoanalysis",
+      "description": "Toggle auto-analysis on the backend and sync local state",
+      "filePath": "web/src/hooks/use-feed-stream.ts",
+      "lineNumbers": "53-63"
+    }
+  ],
+  "go": [
+    {
+      "functionality": "businesslogic > httppoller",
+      "description": "Periodic HTTP polling worker for REST/JSON feed sources",
+      "filePath": "internal/socket/http_poller.go",
+      "lineNumbers": "3-19"
+    },
+    {
+      "functionality": "businesslogic > httppoller",
+      "description": "per-feed HTTP pollers for REST feeds",
+      "filePath": "internal/socket/manager.go",
+      "lineNumbers": "154-157"
+    },
+    {
+      "functionality": "businesslogic > feedbuffer",
+      "description": "persistent message buffer service",
+      "filePath": "internal/socket/manager.go",
+      "lineNumbers": "158-160"
+    },
+    {
+      "functionality": "businesslogic > autoanalysis",
+      "description": "per-feed auto-analysis toggle + debounce",
+      "filePath": "internal/socket/manager.go",
+      "lineNumbers": "161-182"
+    },
+    {
+      "functionality": "apiendpoints > feedcontrol",
+      "description": "Feed start/stop engine control and buffer retrieval",
+      "filePath": "internal/http/handlers/marketplace.go",
+      "lineNumbers": "586-587"
+    }
+  ]
+}

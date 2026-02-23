@@ -1,0 +1,851 @@
+{
+  "version": "1.3.0",
+  "totalFunctionalities": 84,
+  "functionalities": {
+    "configuration": {
+      "level": 1,
+      "parent": null,
+      "children": [
+        "configuration > lazyroutes"
+      ],
+      "groupCount": 4,
+      "fileTypes": [
+        "ts",
+        "tsx"
+      ]
+    },
+    "businesslogic > account": {
+      "level": 2,
+      "parent": "businesslogic",
+      "children": [
+        "businesslogic > account > apikeys",
+        "businesslogic > account > profile",
+        "businesslogic > account > security",
+        "businesslogic > account > sessions"
+      ],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic": {
+      "level": 1,
+      "parent": null,
+      "children": [
+        "businesslogic > account",
+        "businesslogic > autoanalysis",
+        "businesslogic > dashboard",
+        "businesslogic > feedbuffer",
+        "businesslogic > feeddetail",
+        "businesslogic > feedform",
+        "businesslogic > httppoller",
+        "businesslogic > llm",
+        "businesslogic > marketplace",
+        "businesslogic > myfeeds"
+      ],
+      "groupCount": 2,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "authentication": {
+      "level": 1,
+      "parent": null,
+      "children": [],
+      "groupCount": 6,
+      "fileTypes": [
+        "ts",
+        "tsx"
+      ]
+    },
+    "businesslogic > account > sessions": {
+      "level": 3,
+      "parent": "businesslogic > account",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > account > security": {
+      "level": 3,
+      "parent": "businesslogic > account",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > account > profile": {
+      "level": 3,
+      "parent": "businesslogic > account",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > account > apikeys": {
+      "level": 3,
+      "parent": "businesslogic > account",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "errorhandling": {
+      "level": 1,
+      "parent": null,
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "navigation": {
+      "level": 1,
+      "parent": null,
+      "children": [],
+      "groupCount": 3,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "utilities": {
+      "level": 1,
+      "parent": null,
+      "children": [
+        "utilities > feeddetail",
+        "utilities > llm",
+        "utilities > myfeeds"
+      ],
+      "groupCount": 6,
+      "fileTypes": [
+        "ts",
+        "tsx"
+      ]
+    },
+    "websocket": {
+      "level": 1,
+      "parent": null,
+      "children": [
+        "websocket > autoanalysis",
+        "websocket > buffer",
+        "websocket > client",
+        "websocket > feeddetail",
+        "websocket > messagerouting",
+        "websocket > selectors"
+      ],
+      "groupCount": 5,
+      "fileTypes": [
+        "ts",
+        "tsx"
+      ]
+    },
+    "businesslogic > feedform": {
+      "level": 2,
+      "parent": "businesslogic",
+      "children": [
+        "businesslogic > feedform > kveditor"
+      ],
+      "groupCount": 2,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > feedform > kveditor": {
+      "level": 3,
+      "parent": "businesslogic > feedform",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > marketplace": {
+      "level": 2,
+      "parent": "businesslogic",
+      "children": [
+        "businesslogic > marketplace > components"
+      ],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > marketplace > components": {
+      "level": 3,
+      "parent": "businesslogic > marketplace",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > dashboard": {
+      "level": 2,
+      "parent": "businesslogic",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "configuration > lazyroutes": {
+      "level": 2,
+      "parent": "configuration",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > myfeeds": {
+      "level": 2,
+      "parent": "businesslogic",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "utilities > myfeeds": {
+      "level": 2,
+      "parent": "utilities",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > llm": {
+      "level": 2,
+      "parent": "businesslogic",
+      "children": [
+        "businesslogic > llm > autoanalysis",
+        "businesslogic > llm > autoscroll",
+        "businesslogic > llm > buffer",
+        "businesslogic > llm > feedchange",
+        "businesslogic > llm > livedata",
+        "businesslogic > llm > queries",
+        "businesslogic > llm > query",
+        "businesslogic > llm > selection",
+        "businesslogic > llm > stream",
+        "businesslogic > llm > streamcompletion"
+      ],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "utilities > llm": {
+      "level": 2,
+      "parent": "utilities",
+      "children": [],
+      "groupCount": 3,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > llm > selection": {
+      "level": 3,
+      "parent": "businesslogic > llm",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > llm > stream": {
+      "level": 3,
+      "parent": "businesslogic > llm",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > llm > queries": {
+      "level": 3,
+      "parent": "businesslogic > llm",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > llm > livedata": {
+      "level": 3,
+      "parent": "businesslogic > llm",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > llm > buffer": {
+      "level": 3,
+      "parent": "businesslogic > llm",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > llm > autoscroll": {
+      "level": 3,
+      "parent": "businesslogic > llm",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > llm > streamcompletion": {
+      "level": 3,
+      "parent": "businesslogic > llm",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > llm > autoanalysis": {
+      "level": 3,
+      "parent": "businesslogic > llm",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > llm > feedchange": {
+      "level": 3,
+      "parent": "businesslogic > llm",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > llm > query": {
+      "level": 3,
+      "parent": "businesslogic > llm",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > feeddetail": {
+      "level": 2,
+      "parent": "businesslogic",
+      "children": [
+        "businesslogic > feeddetail > autoscroll",
+        "businesslogic > feeddetail > manualquery",
+        "businesslogic > feeddetail > querylookup",
+        "businesslogic > feeddetail > streamcompletion",
+        "businesslogic > feeddetail > streamscoping",
+        "businesslogic > feeddetail > wsstatus"
+      ],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "utilities > feeddetail": {
+      "level": 2,
+      "parent": "utilities",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "types > feeddetail": {
+      "level": 2,
+      "parent": "types",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "types": {
+      "level": 1,
+      "parent": null,
+      "children": [
+        "types > feeddetail"
+      ],
+      "groupCount": 7,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "businesslogic > feeddetail > streamscoping": {
+      "level": 3,
+      "parent": "businesslogic > feeddetail",
+      "children": [],
+      "groupCount": 2,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "apiendpoints > feeddetail": {
+      "level": 2,
+      "parent": "apiendpoints",
+      "children": [
+        "apiendpoints > feeddetail > subscriptions"
+      ],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "apiendpoints": {
+      "level": 1,
+      "parent": null,
+      "children": [
+        "apiendpoints > auth",
+        "apiendpoints > feedcontrol",
+        "apiendpoints > feeddetail",
+        "apiendpoints > llm",
+        "apiendpoints > marketplace",
+        "apiendpoints > settings"
+      ],
+      "groupCount": 0,
+      "fileTypes": []
+    },
+    "websocket > feeddetail": {
+      "level": 2,
+      "parent": "websocket",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > feeddetail > streamcompletion": {
+      "level": 3,
+      "parent": "businesslogic > feeddetail",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > feeddetail > autoscroll": {
+      "level": 3,
+      "parent": "businesslogic > feeddetail",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "apiendpoints > feeddetail > subscriptions": {
+      "level": 3,
+      "parent": "apiendpoints > feeddetail",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > feeddetail > manualquery": {
+      "level": 3,
+      "parent": "businesslogic > feeddetail",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > feeddetail > wsstatus": {
+      "level": 3,
+      "parent": "businesslogic > feeddetail",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "businesslogic > feeddetail > querylookup": {
+      "level": 3,
+      "parent": "businesslogic > feeddetail",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "tsx"
+      ]
+    },
+    "apiclient": {
+      "level": 1,
+      "parent": null,
+      "children": [
+        "apiclient > interceptors"
+      ],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "apiclient > interceptors": {
+      "level": 2,
+      "parent": "apiclient",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "apiendpoints > auth": {
+      "level": 2,
+      "parent": "apiendpoints",
+      "children": [
+        "apiendpoints > auth > 2fa",
+        "apiendpoints > auth > apikeys",
+        "apiendpoints > auth > protected",
+        "apiendpoints > auth > public",
+        "apiendpoints > auth > sessions"
+      ],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "apiendpoints > auth > public": {
+      "level": 3,
+      "parent": "apiendpoints > auth",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "apiendpoints > auth > protected": {
+      "level": 3,
+      "parent": "apiendpoints > auth",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "apiendpoints > auth > 2fa": {
+      "level": 3,
+      "parent": "apiendpoints > auth",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "apiendpoints > auth > sessions": {
+      "level": 3,
+      "parent": "apiendpoints > auth",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "apiendpoints > auth > apikeys": {
+      "level": 3,
+      "parent": "apiendpoints > auth",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "apiendpoints > settings": {
+      "level": 2,
+      "parent": "apiendpoints",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "testsetup": {
+      "level": 1,
+      "parent": null,
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "unittests": {
+      "level": 1,
+      "parent": null,
+      "children": [
+        "unittests > authstore"
+      ],
+      "groupCount": 3,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "unittests > authstore": {
+      "level": 2,
+      "parent": "unittests",
+      "children": [],
+      "groupCount": 4,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "testhelpers": {
+      "level": 1,
+      "parent": null,
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "apiendpoints > llm": {
+      "level": 2,
+      "parent": "apiendpoints",
+      "children": [
+        "apiendpoints > llm > providers",
+        "apiendpoints > llm > streaming"
+      ],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "constants > llm": {
+      "level": 2,
+      "parent": "constants",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "constants": {
+      "level": 1,
+      "parent": null,
+      "children": [
+        "constants > feedstream",
+        "constants > llm"
+      ],
+      "groupCount": 0,
+      "fileTypes": []
+    },
+    "apiendpoints > llm > providers": {
+      "level": 3,
+      "parent": "apiendpoints > llm",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "apiendpoints > llm > streaming": {
+      "level": 3,
+      "parent": "apiendpoints > llm",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "apiendpoints > marketplace": {
+      "level": 2,
+      "parent": "apiendpoints",
+      "children": [
+        "apiendpoints > marketplace > feedcontrol",
+        "apiendpoints > marketplace > protected",
+        "apiendpoints > marketplace > public"
+      ],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "apiendpoints > marketplace > public": {
+      "level": 3,
+      "parent": "apiendpoints > marketplace",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "apiendpoints > marketplace > protected": {
+      "level": 3,
+      "parent": "apiendpoints > marketplace",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "apiendpoints > marketplace > feedcontrol": {
+      "level": 3,
+      "parent": "apiendpoints > marketplace",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "websocket > client": {
+      "level": 2,
+      "parent": "websocket",
+      "children": [
+        "websocket > client > auth",
+        "websocket > client > connection",
+        "websocket > client > events",
+        "websocket > client > internal",
+        "websocket > client > reconnect",
+        "websocket > client > send"
+      ],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "websocket > client > reconnect": {
+      "level": 3,
+      "parent": "websocket > client",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "websocket > client > connection": {
+      "level": 3,
+      "parent": "websocket > client",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "websocket > client > auth": {
+      "level": 3,
+      "parent": "websocket > client",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "websocket > client > send": {
+      "level": 3,
+      "parent": "websocket > client",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "websocket > client > events": {
+      "level": 3,
+      "parent": "websocket > client",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "websocket > client > internal": {
+      "level": 3,
+      "parent": "websocket > client",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "websocket > buffer": {
+      "level": 2,
+      "parent": "websocket",
+      "children": [],
+      "groupCount": 2,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "websocket > messagerouting": {
+      "level": 2,
+      "parent": "websocket",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "websocket > autoanalysis": {
+      "level": 2,
+      "parent": "websocket",
+      "children": [],
+      "groupCount": 3,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "constants > feedstream": {
+      "level": 2,
+      "parent": "constants",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "websocket > selectors": {
+      "level": 2,
+      "parent": "websocket",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "ts"
+      ]
+    },
+    "businesslogic > httppoller": {
+      "level": 2,
+      "parent": "businesslogic",
+      "children": [],
+      "groupCount": 2,
+      "fileTypes": [
+        "go"
+      ]
+    },
+    "businesslogic > feedbuffer": {
+      "level": 2,
+      "parent": "businesslogic",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "go"
+      ]
+    },
+    "businesslogic > autoanalysis": {
+      "level": 2,
+      "parent": "businesslogic",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "go"
+      ]
+    },
+    "apiendpoints > feedcontrol": {
+      "level": 2,
+      "parent": "apiendpoints",
+      "children": [],
+      "groupCount": 1,
+      "fileTypes": [
+        "go"
+      ]
+    }
+  }
+}
